@@ -26,29 +26,30 @@ typedef struct RTX_Sprite {
     Vector2 origin;
 } RTX_Sprite;
 
-static Rectangle* texture_rectangles;
+static RTX_Sprite* sprites;
 static FilePathList files;
-
-static Texture2D test_texture;
 
 static RenderTexture2D texture_atlas;
 
-static int CompareTextureRectangles (const void* a, const void* b) {
-    Rectangle* rect_a = (Rectangle*)a;
-    Rectangle* rect_b = (Rectangle*)b;
+static Rectangle* currently_selected_rectangle;
+static RTX_Sprite* currently_selected_sprite;
 
-    int mass_a = (int)(rect_a->width * rect_a->height);
-    int mass_b = (int)(rect_b->width * rect_b->height);
+static int CompareTextureRectangles (const void* a, const void* b) {
+    RTX_Sprite* sprite_a = (RTX_Sprite*)a;
+    RTX_Sprite* sprite_b = (RTX_Sprite*)b;
+
+    int mass_a = (int)(sprite_a->source.width * sprite_a->source.height);
+    int mass_b = (int)(sprite_b->source.width * sprite_b->source.height);
 
     if (mass_a == mass_b) {
-        if ((int)rect_a->width == (int)rect_b->width) {
-            if (rect_a->height > rect_b->height) return -1;
-            if (rect_b->height > rect_a->height) return 1;
+        if ((int)sprite_a->source.width == (int)sprite_b->source.width) {
+            if (sprite_a->source.height > sprite_b->source.height) return -1;
+            if (sprite_b->source.height > sprite_a->source.height) return 1;
 
             return 0;
         } else {
-            if (rect_a->width > rect_b->width) return -1;
-            if (rect_b->width > rect_a->width) return 1;
+            if (sprite_a->source.width > sprite_b->source.width) return -1;
+            if (sprite_b->source.width > sprite_a->source.width) return 1;
 
             return 0;
         }
@@ -68,16 +69,22 @@ static void LoadAndFilterAssets (void) {
         return;
     }
 
-    texture_rectangles = calloc (files.count, sizeof (Rectangle));
+    sprites = calloc (files.count, sizeof (RTX_Sprite));
 
     for (size_t i = 0; i < files.count; i++) {
-        int width, height;
-        stbi_info (files.paths[i], &width, &height, NULL);
+        Texture2D texture = LoadTexture (files.paths[i]);
 
-        texture_rectangles[i] = CLITERAL(Rectangle) { 0, 0, width, height };
+        sprites[i] = CLITERAL(RTX_Sprite) {
+            .texture = texture,
+
+            .source = CLITERAL(Rectangle) { 0, 0, texture.width, texture.height },
+            .origin = Vector2Zero ()
+        };
     }
 
-    qsort (texture_rectangles, files.count, sizeof (Rectangle), CompareTextureRectangles);
+    qsort (sprites, files.count, sizeof (RTX_Sprite), CompareTextureRectangles);
+
+    for (size_t i = 0; i < files.count; i++) sprites[i].id = i;
 }
 
 static void RenderRectangleSizes (void) {
@@ -85,11 +92,11 @@ static void RenderRectangleSizes (void) {
 
     // Skip first rectangle, will always be at 0|0
     for (size_t i = 0; i < files.count; i++) {
-        Rectangle* current_rectangle = &texture_rectangles[i];
+        Rectangle* current_rectangle = &sprites[i].source;
 
         for (size_t j = 0; j < textures_placed; j++) {
-            while (CheckCollisionRecs (*current_rectangle, texture_rectangles[j])) {
-                current_rectangle->x += texture_rectangles[j].width;
+            while (CheckCollisionRecs (*current_rectangle, sprites[j].source)) {
+                current_rectangle->x += sprites[j].source.width;
 
                 int within_x = (current_rectangle->x + current_rectangle->width) <= ATLAS_SIZE;
 
@@ -108,15 +115,17 @@ static void RenderRectangleSizes (void) {
     BeginTextureMode (texture_atlas);
         ClearBackground (Fade (BLACK, 0));
 
-        // for (size_t i = 0; i < files.count; i++) {
-        //     DrawRectangleLinesEx (texture_rectangles[i], 1.0f, RED);
-        // }
+        for (size_t i = 0; i < files.count; i++) {
+            RTX_Sprite* current_sprite = &sprites[i];
+
+            DrawTextureV ((*current_sprite).texture, CLITERAL(Vector2){ current_sprite->source.x, current_sprite->source.y }, WHITE);
+        }
     EndTextureMode ();
 
-    Image atlas_image = LoadImageFromTexture (texture_atlas.texture);
-    ImageFlipVertical (&atlas_image);
+    // Image atlas_image = LoadImageFromTexture (texture_atlas.texture);
+    // ImageFlipVertical (&atlas_image);
 
-    ExportImage (atlas_image, "output.png");
+    // ExportImage (atlas_image, "output.png");
 
     // int filesize;
     // int compsize;
@@ -136,29 +145,42 @@ static void RenderRectangleSizes (void) {
     // free (compdata);
     // free (decompdata);
 
-    UnloadImage (atlas_image);
+    // UnloadImage (atlas_image);
 }
 
 int main (int argc, const char* argv[]) {
     InitWindow (WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE);
 
-    texture_atlas = LoadRenderTexture (ATLAS_SIZE, ATLAS_SIZE);
+    SetWindowState (FLAG_WINDOW_RESIZABLE);
 
-    // Used to ensure we are displaying correctly
-    test_texture = LoadTexture ("assets/atlas.png");
+    {   // Set framerate to max
+        #define DEFAULT_TARGET_FPS 60
+        int current_monitor = GetCurrentMonitor ();
+        int fps = GetMonitorRefreshRate (current_monitor);
+
+        // Fallback to 60 FPS target if error occurs
+        if (fps <= 0) fps = DEFAULT_TARGET_FPS;
+
+        SetTargetFPS (fps);
+    }
+
+    texture_atlas = LoadRenderTexture (ATLAS_SIZE, ATLAS_SIZE);
 
     Camera2D camera = { 0 };
     camera.zoom = 1.0f;
 
     while (!WindowShouldClose ()) {
-        if (IsMouseButtonDown (MOUSE_BUTTON_MIDDLE)) {
+        // -----------------------------------------------------------------------------
+        // Camera movement and zoom
+        // -----------------------------------------------------------------------------
+        if (IsMouseButtonDown (MOUSE_BUTTON_MIDDLE) || IsKeyDown (KEY_LEFT_ALT)) {
             Vector2 delta = GetMouseDelta ();
 
             delta = Vector2Scale (delta, -1.0f / camera.zoom);
             camera.target = Vector2Add (camera.target, delta);
         }
 
-        float wheel = GetMouseWheelMove();
+        float wheel = GetMouseWheelMove ();
         if (wheel != 0) {
             Vector2 mouse_world_position = GetScreenToWorld2D (GetMousePosition (), camera);
 
@@ -171,55 +193,87 @@ int main (int argc, const char* argv[]) {
             if (camera.zoom < zoom_amount) camera.zoom = zoom_amount;
         }
 
+        // -----------------------------------------------------------------------------
+        // Rectangle Collision
+        // -----------------------------------------------------------------------------
+        Vector2 mouse_world_position = GetScreenToWorld2D (GetMousePosition (), camera);
+
+        for (size_t i = 0; i < files.count; i++) {
+            currently_selected_rectangle = NULL;
+            currently_selected_sprite = NULL;
+
+            RTX_Sprite* current_sprite = &sprites[i];
+
+            if (CheckCollisionPointRec (mouse_world_position, current_sprite->source)) {
+                currently_selected_rectangle = &current_sprite->source;
+                break;
+            }
+        }
+
         BeginDrawing ();
             ClearBackground (SKYBLUE);
 
             BeginMode2D (camera);
-            {
                 DrawTexturePro (texture_atlas.texture, CLITERAL(Rectangle){ 0, 0, ATLAS_SIZE, -ATLAS_SIZE }, CLITERAL(Rectangle){ 0, 0, ATLAS_SIZE, ATLAS_SIZE }, Vector2Zero (), 0.0f, WHITE);
                 DrawRectangleLinesEx (CLITERAL(Rectangle){ -1, -1, texture_atlas.texture.width + 2, texture_atlas.texture.height + 2 }, 1.0f, YELLOW);
 
-                Vector2 mouse_world_position = GetScreenToWorld2D (GetMousePosition (), camera);
+                if (currently_selected_rectangle != NULL) {
+                    DrawRectangleLinesEx (*currently_selected_rectangle, 1.0f, GREEN);
 
-                for (size_t i = 0; i < files.count; i++) {
-                    Rectangle* current_rect = &texture_rectangles[i];
+                    DrawLineV (
+                        CLITERAL(Vector2){ .x = currently_selected_rectangle->x, .y = mouse_world_position.y },
+                        CLITERAL(Vector2){ .x = currently_selected_rectangle->x + currently_selected_rectangle->width, .y = mouse_world_position.y },
+                        WHITE
+                    );
 
-                    if (CheckCollisionPointRec (mouse_world_position, texture_rectangles[i])) {
-                        DrawRectangleLinesEx (texture_rectangles[i], 1.0f, GREEN);
+                    DrawLineV (
+                        CLITERAL(Vector2){ .x = mouse_world_position.x, .y = currently_selected_rectangle->y },
+                        CLITERAL(Vector2){ .x = mouse_world_position.x, .y = currently_selected_rectangle->y + currently_selected_rectangle->height },
+                        WHITE
+                    );
 
-                        DrawLineV (
-                            CLITERAL(Vector2){ .x = current_rect->x, .y = mouse_world_position.y },
-                            CLITERAL(Vector2){ .x = current_rect->x + current_rect->width, .y = mouse_world_position.y },
-                            WHITE
-                        );
-
-                        DrawLineV (
-                            CLITERAL(Vector2){ .x = mouse_world_position.x, .y = current_rect->y },
-                            CLITERAL(Vector2){ .x = mouse_world_position.x, .y = current_rect->y + current_rect->height },
-                            WHITE
-                        );
-
-                        DrawCircleLinesV (mouse_world_position, 1, WHITE);
-
-                        break;
-                    }
+                    DrawCircleLinesV (mouse_world_position, 1, WHITE);
                 }
-            }
             EndMode2D ();
 
             if (GuiButton (CLITERAL(Rectangle){ 32, 32, 128, 48 }, "Load Assets")) {
-                if (!texture_rectangles) {
+                if (!sprites) {
                     LoadAndFilterAssets ();
                     RenderRectangleSizes ();
                 }
+            }
+
+            if (currently_selected_rectangle != NULL) {
+                int x = (int)(mouse_world_position.x - currently_selected_rectangle->x);
+                int y = (int)(mouse_world_position.y - currently_selected_rectangle->y);
+
+                const char* coordinates = TextFormat ("%d, %d", x, y);
+
+                Vector2 text_size = MeasureTextEx (GetFontDefault (), coordinates, 40, 1.0f);
+                Vector2 render_position = Vector2Subtract (GetMousePosition (), Vector2SubtractValue (text_size, 2));
+
+                Rectangle tooltip = CLITERAL(Rectangle) {
+                    .x = render_position.x - 2,
+                    .y = render_position.y - 2,
+                    .width = text_size.x + 2,
+                    .height = text_size.y + 2
+                };
+
+                DrawRectangleRec (tooltip, Fade (BLACK, 0.5f));
+                DrawTextEx (GetFontDefault (), coordinates, render_position, 40, 1.0f, RAYWHITE);
             }
 
             DrawFPS (8, 8);
         EndDrawing ();
     }
 
+    for (size_t i = 0; i < files.count; i++) {
+        UnloadTexture (sprites[i].texture);
+    }
+
+    free (sprites);
+
     UnloadRenderTexture (texture_atlas);
-    UnloadTexture (test_texture);
 
     CloseWindow ();
 
