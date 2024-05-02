@@ -2,12 +2,12 @@
 
 #include <raylib.h>
 #include <raymath.h>
-
-#define RAYGUI_IMPLEMENTATION
 #include <raygui.h>
 
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
 
 #define WINDOW_WIDTH 1280
 #define WINDOW_HEIGHT 720
@@ -44,192 +44,12 @@ static RenderTexture2D texture_atlas;
 static Rectangle* currently_selected_rectangle;
 static RTX_Sprite* currently_selected_sprite;
 
-#define FNV_OFFSET 14695981039346656037UL
-#define FNV_PRIME 1099511628211UL
-
-static uint64_t __hash (const char* key) {
-    uint64_t hash = FNV_OFFSET;
-
-    for (const char* p = key; *p; p++) {
-        hash ^= (uint64_t)(unsigned char)(*p);
-        hash *= FNV_PRIME;
-    }
-
-    return hash;
-}
-
-static int CompareTextureRectangles (const void* a, const void* b) {
-    RTX_Sprite* sprite_a = (RTX_Sprite*)a;
-    RTX_Sprite* sprite_b = (RTX_Sprite*)b;
-
-    int mass_a = (int)(sprite_a->source.width * sprite_a->source.height);
-    int mass_b = (int)(sprite_b->source.width * sprite_b->source.height);
-
-    if (mass_a == mass_b) {
-        if ((int)sprite_a->source.width == (int)sprite_b->source.width) {
-            if (sprite_a->source.height > sprite_b->source.height) return -1;
-            if (sprite_b->source.height > sprite_a->source.height) return 1;
-
-            return 0;
-        } else {
-            if (sprite_a->source.width > sprite_b->source.width) return -1;
-            if (sprite_b->source.width > sprite_a->source.width) return 1;
-
-            return 0;
-        }
-    } else {
-        if (mass_a > mass_b) return -1;
-        if (mass_b > mass_a) return 1;
-    }
-
-    return 0;
-}
-
-static void LoadAndFilterAssets (void) {
-    files = LoadDirectoryFiles (ASSET_DIR);
-
-    if (files.count == 0) {
-        TraceLog (LOG_INFO, "No files found in [%s]", ASSET_DIR);
-        return;
-    }
-
-    sprites = calloc (files.count, sizeof (RTX_Sprite));
-
-    for (size_t i = 0; i < files.count; i++) {
-        Texture2D texture = LoadTexture (files.paths[i]);
-
-        sprites[i] = CLITERAL(RTX_Sprite) {
-            .texture = texture,
-
-            .source = CLITERAL(Rectangle) { 0, 0, texture.width, texture.height },
-            .origin = Vector2Zero ()
-        };
-
-        strncpy (sprites[i].name, GetFileNameWithoutExt (files.paths[i]), MAX_ASSET_NAME_LENGTH);
-        sprites[i].hash = __hash (sprites[i].name);
-    }
-
-    qsort (sprites, files.count, sizeof (RTX_Sprite), CompareTextureRectangles);
-
-    for (size_t i = 0; i < files.count; i++) sprites[i].id = i;
-}
-
-static void RenderRectangleSizes (void) {
-    int textures_placed = 0;
-
-    for (size_t i = 0; i < files.count; i++) {
-        Rectangle* current_rectangle = &sprites[i].source;
-
-        for (size_t j = 0; j < textures_placed; j++) {
-            while (CheckCollisionRecs (*current_rectangle, sprites[j].source)) {
-                current_rectangle->x += sprites[j].source.width;
-
-                int within_x = (current_rectangle->x + current_rectangle->width) <= ATLAS_SIZE;
-
-                if (!within_x) {
-                    current_rectangle->x = 0;
-                    current_rectangle->y += ATLAS_ITEM_MIN_SIZE;
-
-                    j = 0;
-                }
-            }
-        }
-
-        textures_placed++;
-    }
-
-    BeginTextureMode (texture_atlas);
-        ClearBackground (Fade (BLACK, 0));
-
-        for (size_t i = 0; i < files.count; i++) {
-            RTX_Sprite* current_sprite = &sprites[i];
-
-            DrawTextureV ((*current_sprite).texture, CLITERAL(Vector2){ current_sprite->source.x, current_sprite->source.y }, WHITE);
-        }
-    EndTextureMode ();
-
-    Image atlas_image = LoadImageFromTexture (texture_atlas.texture);
-    ImageFlipVertical (&atlas_image);
-
-    ExportImage (atlas_image, "output.png");
-
-    // int filesize;
-    // int compsize;
-    // int decompsize;
-
-    // unsigned char* data = ExportImageToMemory (atlas_image, ".png", &filesize);
-    // unsigned char* compdata = CompressData (data, filesize, &compsize);
-    // unsigned char* decompdata = DecompressData (compdata, compsize, &decompsize);
-
-    // TraceLog (LOG_INFO, " RAW [%d] | COMP [%d] | DECOMP [%d]", filesize, compsize, decompsize);
-
-    // SaveFileData ("output_raw.dat", data, filesize);
-    // SaveFileData ("output_comp.dat", compdata, compsize);
-    // SaveFileData ("output_decomp.dat", decompdata, decompsize);
-
-    // free (data);
-    // free (compdata);
-    // free (decompdata);
-
-    UnloadImage (atlas_image);
-}
-
-static void ExportData (void) {
-    FILE* output_file = fopen ("data.dat", "wb");
-
-    if (output_file) {
-        fwrite (&files.count, sizeof (unsigned int), 1, output_file);
-
-        for (int i = 0; i < files.count; i++) {
-            RTX_Sprite* sprite = &sprites[i];
-
-            fwrite (&sprite->hash, sizeof (uint64_t), 1, output_file);
-            fwrite (sprite->name, sizeof (char), MAX_ASSET_NAME_LENGTH, output_file);
-
-            fwrite (&sprite->source.x, sizeof (float), 1, output_file);
-            fwrite (&sprite->source.y, sizeof (float), 1, output_file);
-            fwrite (&sprite->source.width, sizeof (float), 1, output_file);
-            fwrite (&sprite->source.height, sizeof (float), 1, output_file);
-        }
-
-        fclose (output_file);
-    } else {
-        TraceLog (LOG_ERROR, "Failed to open file!");
-    }
-}
-
-static void ImportData(void) {
-    FILE* import_file = fopen("data.dat", "rb");
-    int file_count;
-
-    if (import_file) {
-        fread(&file_count, sizeof(unsigned int), 1, import_file);
-
-        if (sprites != NULL) {
-            free(sprites);
-        }
-
-        sprites = calloc(file_count, sizeof(RTX_Sprite));
-
-        for (int i = 0; i < file_count; i++) {
-            RTX_Sprite* current_sprite = &sprites[i];
-
-            fread(&current_sprite->hash, sizeof(uint64_t), 1, import_file);
-            fread(current_sprite->name, sizeof(char), MAX_ASSET_NAME_LENGTH, import_file);
-
-            fread (&current_sprite->source.x, sizeof (float), 1, import_file);
-            fread (&current_sprite->source.y, sizeof (float), 1, import_file);
-            fread (&current_sprite->source.width, sizeof (float), 1, import_file);
-            fread (&current_sprite->source.height, sizeof (float), 1, import_file);
-        }
-
-        files.count = file_count;
-
-        fclose(import_file);
-    } else {
-        TraceLog(LOG_ERROR, "Failed to open file!");
-    }
-}
+static uint64_t hash (const char* key);
+static int CompareTextureRectangles (const void* a, const void* b);
+static void LoadAndFilterAssets (void);
+static void RenderRectangleSizes (void);
+static void ExportData (void);
+static void ImportData (void);
 
 int main (int argc, const char* argv[]) {
     InitWindow (WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE);
@@ -246,8 +66,6 @@ int main (int argc, const char* argv[]) {
 
         SetTargetFPS (fps);
     }
-
-    Texture2D test_texture = LoadTexture ("output.png");
 
     texture_atlas = LoadRenderTexture (ATLAS_SIZE, ATLAS_SIZE);
 
@@ -299,8 +117,7 @@ int main (int argc, const char* argv[]) {
             ClearBackground (SKYBLUE);
 
             BeginMode2D (camera);
-                // DrawTexturePro (texture_atlas.texture, CLITERAL(Rectangle){ 0, 0, ATLAS_SIZE, -ATLAS_SIZE }, CLITERAL(Rectangle){ 0, 0, ATLAS_SIZE, ATLAS_SIZE }, Vector2Zero (), 0.0f, WHITE);
-                DrawTexture (test_texture, 0, 0, WHITE);
+                DrawTexturePro (texture_atlas.texture, CLITERAL(Rectangle){ 0, 0, ATLAS_SIZE, -ATLAS_SIZE }, CLITERAL(Rectangle){ 0, 0, ATLAS_SIZE, ATLAS_SIZE }, Vector2Zero (), 0.0f, WHITE);
                 DrawRectangleLinesEx (CLITERAL(Rectangle){ -1, -1, texture_atlas.texture.width + 2, texture_atlas.texture.height + 2 }, 1.0f, YELLOW);
 
                 if (currently_selected_rectangle != NULL) {
@@ -348,9 +165,229 @@ int main (int argc, const char* argv[]) {
     free (sprites);
 
     UnloadRenderTexture (texture_atlas);
-    UnloadTexture (test_texture);
 
     CloseWindow ();
 
     return 0;
+}
+
+uint64_t hash (const char* key) {
+    #define FNV_OFFSET 14695981039346656037UL
+    #define FNV_PRIME 1099511628211UL
+
+    uint64_t hash = FNV_OFFSET;
+
+    for (const char* p = key; *p; p++) {
+        hash ^= (uint64_t)(unsigned char)(*p);
+        hash *= FNV_PRIME;
+    }
+
+    return hash;
+}
+
+static int CompareTextureRectangles (const void* a, const void* b) {
+    RTX_Sprite* sprite_a = (RTX_Sprite*)a;
+    RTX_Sprite* sprite_b = (RTX_Sprite*)b;
+
+    int mass_a = (int)(sprite_a->source.width * sprite_a->source.height);
+    int mass_b = (int)(sprite_b->source.width * sprite_b->source.height);
+
+    if (mass_a == mass_b) {
+        if ((int)sprite_a->source.width == (int)sprite_b->source.width) {
+            if (sprite_a->source.height > sprite_b->source.height) return -1;
+            if (sprite_b->source.height > sprite_a->source.height) return 1;
+
+            return 0;
+        } else {
+            if (sprite_a->source.width > sprite_b->source.width) return -1;
+            if (sprite_b->source.width > sprite_a->source.width) return 1;
+
+            return 0;
+        }
+    } else {
+        if (mass_a > mass_b) return -1;
+        if (mass_b > mass_a) return 1;
+    }
+
+    return 0;
+}
+
+void LoadAndFilterAssets (void) {
+    files = LoadDirectoryFiles (ASSET_DIR);
+
+    if (files.count == 0) {
+        TraceLog (LOG_INFO, "No files found in [%s]", ASSET_DIR);
+        return;
+    }
+
+    sprites = calloc (files.count, sizeof (RTX_Sprite));
+
+    for (size_t i = 0; i < files.count; i++) {
+        Texture2D texture = LoadTexture (files.paths[i]);
+
+        sprites[i] = CLITERAL(RTX_Sprite) {
+            .texture = texture,
+
+            .source = CLITERAL(Rectangle) { 0, 0, texture.width, texture.height },
+            .origin = Vector2Zero ()
+        };
+
+        strncpy (sprites[i].name, GetFileNameWithoutExt (files.paths[i]), MAX_ASSET_NAME_LENGTH);
+        sprites[i].hash = hash (sprites[i].name);
+    }
+
+    qsort (sprites, files.count, sizeof (RTX_Sprite), CompareTextureRectangles);
+
+    for (size_t i = 0; i < files.count; i++) sprites[i].id = i;
+}
+
+static void RenderRectangleSizes (void) {
+    int textures_placed = 0;
+
+    for (size_t i = 0; i < files.count; i++) {
+        Rectangle* current_rectangle = &sprites[i].source;
+
+        for (size_t j = 0; j < textures_placed; j++) {
+            while (CheckCollisionRecs (*current_rectangle, sprites[j].source)) {
+                current_rectangle->x += sprites[j].source.width;
+
+                int within_x = (current_rectangle->x + current_rectangle->width) <= ATLAS_SIZE;
+
+                if (!within_x) {
+                    current_rectangle->x = 0;
+                    current_rectangle->y += ATLAS_ITEM_MIN_SIZE;
+
+                    j = 0;
+                }
+            }
+        }
+
+        textures_placed++;
+    }
+
+    BeginTextureMode (texture_atlas);
+        ClearBackground (Fade (BLACK, 0));
+
+        for (size_t i = 0; i < files.count; i++) {
+            RTX_Sprite* current_sprite = &sprites[i];
+
+            DrawTextureV ((*current_sprite).texture, CLITERAL(Vector2){ current_sprite->source.x, current_sprite->source.y }, WHITE);
+        }
+    EndTextureMode ();
+
+    Image atlas_image = LoadImageFromTexture (texture_atlas.texture);
+    ImageFlipVertical (&atlas_image);
+
+    ExportImage (atlas_image, "output.png");
+
+    UnloadImage (atlas_image);
+}
+
+void ExportData (void) {
+    FILE* output_file = fopen ("data.dat", "wb");
+
+    if (output_file) {
+        fwrite (&files.count, sizeof (unsigned int), 1, output_file);
+
+        int atlas_size;
+        int atlas_compressed_size;
+
+        Image atlas_image = LoadImageFromTexture (texture_atlas.texture);
+
+        unsigned char* data = ExportImageToMemory (atlas_image, ".png", &atlas_size);
+        unsigned char* compressed_data = CompressData (data, atlas_size, &atlas_compressed_size);
+
+        free (data);
+
+        fwrite (&atlas_compressed_size, sizeof (int), 1, output_file);
+        fwrite (compressed_data, sizeof (unsigned char), atlas_compressed_size, output_file);
+
+        free (compressed_data);
+
+        UnloadImage (atlas_image);
+
+        for (int i = 0; i < files.count; i++) {
+            RTX_Sprite* sprite = &sprites[i];
+
+            fwrite (&sprite->hash, sizeof (uint64_t), 1, output_file);
+            fwrite (sprite->name, sizeof (char), MAX_ASSET_NAME_LENGTH, output_file);
+
+            fwrite (&sprite->source.x, sizeof (float), 1, output_file);
+            fwrite (&sprite->source.y, sizeof (float), 1, output_file);
+            fwrite (&sprite->source.width, sizeof (float), 1, output_file);
+            fwrite (&sprite->source.height, sizeof (float), 1, output_file);
+
+            fwrite (&sprite->origin.x, sizeof (float), 1, output_file);
+            fwrite (&sprite->origin.y, sizeof (float), 1, output_file);
+        }
+
+        fclose (output_file);
+    } else {
+        TraceLog (LOG_ERROR, "Failed to open file!");
+    }
+}
+
+void ImportData (void) {
+    FILE* import_file = fopen("data.dat", "rb");
+
+    int file_count;
+    int data_compressed_size, data_decompressed_size;
+
+    if (import_file) {
+        fread (&file_count, sizeof(unsigned int), 1, import_file);
+        fread (&data_compressed_size, sizeof (int), 1, import_file);
+        TraceLog (LOG_INFO, "%d", data_compressed_size);
+
+        unsigned char* compressed_data = calloc (data_compressed_size, sizeof (unsigned char));
+        unsigned char* decompressed_data;
+
+        fread (compressed_data, sizeof (unsigned char), data_compressed_size, import_file);
+
+        decompressed_data = DecompressData (compressed_data, data_compressed_size, &data_decompressed_size);
+
+        Image atlas_image = LoadImageFromMemory (".png", decompressed_data, data_decompressed_size);
+        ImageFlipVertical (&atlas_image);
+
+        Texture2D atlas_texture = LoadTextureFromImage (atlas_image);
+
+        free (compressed_data);
+        free (decompressed_data);
+
+        BeginTextureMode (texture_atlas);
+            ClearBackground (Fade (BLACK, 0));
+
+            DrawTexture (atlas_texture, 0, 0, WHITE);
+        EndTextureMode ();
+
+        UnloadImage (atlas_image);
+        UnloadTexture (atlas_texture);
+
+        if (sprites != NULL) {
+            free (sprites);
+        }
+
+        sprites = calloc(file_count, sizeof(RTX_Sprite));
+
+        for (int i = 0; i < file_count; i++) {
+            RTX_Sprite* current_sprite = &sprites[i];
+
+            fread (&current_sprite->hash, sizeof (uint64_t), 1, import_file);
+            fread (current_sprite->name, sizeof (char), MAX_ASSET_NAME_LENGTH, import_file);
+            TraceLog (LOG_INFO, "%s", current_sprite->name);
+
+            fread (&current_sprite->source.x, sizeof (float), 1, import_file);
+            fread (&current_sprite->source.y, sizeof (float), 1, import_file);
+            fread (&current_sprite->source.width, sizeof (float), 1, import_file);
+            fread (&current_sprite->source.height, sizeof (float), 1, import_file);
+
+            fread (&current_sprite->origin.x, sizeof (float), 1, import_file);
+            fread (&current_sprite->origin.y, sizeof (float), 1, import_file);
+        }
+
+        files.count = file_count;
+
+        fclose (import_file);
+    } else {
+        TraceLog (LOG_ERROR, "Failed to open file!");
+    }
 }
