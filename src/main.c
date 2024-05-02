@@ -16,15 +16,25 @@
 #define ATLAS_SIZE 1024
 #define ATLAS_ITEM_MIN_SIZE 16
 
+#define MAX_ASSET_NAME_LENGTH 32
+
 #define ASSET_DIR "assets"
 
 typedef struct RTX_Sprite {
     size_t id;
+
+    uint64_t hash;
+    char name[MAX_ASSET_NAME_LENGTH];
+
     Texture2D texture;
 
     Rectangle source;
     Vector2 origin;
 } RTX_Sprite;
+
+struct {
+    int mode;
+} STATE;
 
 static RTX_Sprite* sprites;
 static FilePathList files;
@@ -33,6 +43,20 @@ static RenderTexture2D texture_atlas;
 
 static Rectangle* currently_selected_rectangle;
 static RTX_Sprite* currently_selected_sprite;
+
+#define FNV_OFFSET 14695981039346656037UL
+#define FNV_PRIME 1099511628211UL
+
+static uint64_t __hash (const char* key) {
+    uint64_t hash = FNV_OFFSET;
+
+    for (const char* p = key; *p; p++) {
+        hash ^= (uint64_t)(unsigned char)(*p);
+        hash *= FNV_PRIME;
+    }
+
+    return hash;
+}
 
 static int CompareTextureRectangles (const void* a, const void* b) {
     RTX_Sprite* sprite_a = (RTX_Sprite*)a;
@@ -80,6 +104,9 @@ static void LoadAndFilterAssets (void) {
             .source = CLITERAL(Rectangle) { 0, 0, texture.width, texture.height },
             .origin = Vector2Zero ()
         };
+
+        strncpy (sprites[i].name, GetFileNameWithoutExt (files.paths[i]), MAX_ASSET_NAME_LENGTH);
+        sprites[i].hash = __hash (sprites[i].name);
     }
 
     qsort (sprites, files.count, sizeof (RTX_Sprite), CompareTextureRectangles);
@@ -90,7 +117,6 @@ static void LoadAndFilterAssets (void) {
 static void RenderRectangleSizes (void) {
     int textures_placed = 0;
 
-    // Skip first rectangle, will always be at 0|0
     for (size_t i = 0; i < files.count; i++) {
         Rectangle* current_rectangle = &sprites[i].source;
 
@@ -122,10 +148,10 @@ static void RenderRectangleSizes (void) {
         }
     EndTextureMode ();
 
-    // Image atlas_image = LoadImageFromTexture (texture_atlas.texture);
-    // ImageFlipVertical (&atlas_image);
+    Image atlas_image = LoadImageFromTexture (texture_atlas.texture);
+    ImageFlipVertical (&atlas_image);
 
-    // ExportImage (atlas_image, "output.png");
+    ExportImage (atlas_image, "output.png");
 
     // int filesize;
     // int compsize;
@@ -145,7 +171,64 @@ static void RenderRectangleSizes (void) {
     // free (compdata);
     // free (decompdata);
 
-    // UnloadImage (atlas_image);
+    UnloadImage (atlas_image);
+}
+
+static void ExportData (void) {
+    FILE* output_file = fopen ("data.dat", "wb");
+
+    if (output_file) {
+        fwrite (&files.count, sizeof (unsigned int), 1, output_file);
+
+        for (int i = 0; i < files.count; i++) {
+            RTX_Sprite* sprite = &sprites[i];
+
+            fwrite (&sprite->hash, sizeof (uint64_t), 1, output_file);
+            fwrite (sprite->name, sizeof (char), MAX_ASSET_NAME_LENGTH, output_file);
+
+            fwrite (&sprite->source.x, sizeof (float), 1, output_file);
+            fwrite (&sprite->source.y, sizeof (float), 1, output_file);
+            fwrite (&sprite->source.width, sizeof (float), 1, output_file);
+            fwrite (&sprite->source.height, sizeof (float), 1, output_file);
+        }
+
+        fclose (output_file);
+    } else {
+        TraceLog (LOG_ERROR, "Failed to open file!");
+    }
+}
+
+static void ImportData(void) {
+    FILE* import_file = fopen("data.dat", "rb");
+    int file_count;
+
+    if (import_file) {
+        fread(&file_count, sizeof(unsigned int), 1, import_file);
+
+        if (sprites != NULL) {
+            free(sprites);
+        }
+
+        sprites = calloc(file_count, sizeof(RTX_Sprite));
+
+        for (int i = 0; i < file_count; i++) {
+            RTX_Sprite* current_sprite = &sprites[i];
+
+            fread(&current_sprite->hash, sizeof(uint64_t), 1, import_file);
+            fread(current_sprite->name, sizeof(char), MAX_ASSET_NAME_LENGTH, import_file);
+
+            fread (&current_sprite->source.x, sizeof (float), 1, import_file);
+            fread (&current_sprite->source.y, sizeof (float), 1, import_file);
+            fread (&current_sprite->source.width, sizeof (float), 1, import_file);
+            fread (&current_sprite->source.height, sizeof (float), 1, import_file);
+        }
+
+        files.count = file_count;
+
+        fclose(import_file);
+    } else {
+        TraceLog(LOG_ERROR, "Failed to open file!");
+    }
 }
 
 int main (int argc, const char* argv[]) {
@@ -163,6 +246,8 @@ int main (int argc, const char* argv[]) {
 
         SetTargetFPS (fps);
     }
+
+    Texture2D test_texture = LoadTexture ("output.png");
 
     texture_atlas = LoadRenderTexture (ATLAS_SIZE, ATLAS_SIZE);
 
@@ -214,7 +299,8 @@ int main (int argc, const char* argv[]) {
             ClearBackground (SKYBLUE);
 
             BeginMode2D (camera);
-                DrawTexturePro (texture_atlas.texture, CLITERAL(Rectangle){ 0, 0, ATLAS_SIZE, -ATLAS_SIZE }, CLITERAL(Rectangle){ 0, 0, ATLAS_SIZE, ATLAS_SIZE }, Vector2Zero (), 0.0f, WHITE);
+                // DrawTexturePro (texture_atlas.texture, CLITERAL(Rectangle){ 0, 0, ATLAS_SIZE, -ATLAS_SIZE }, CLITERAL(Rectangle){ 0, 0, ATLAS_SIZE, ATLAS_SIZE }, Vector2Zero (), 0.0f, WHITE);
+                DrawTexture (test_texture, 0, 0, WHITE);
                 DrawRectangleLinesEx (CLITERAL(Rectangle){ -1, -1, texture_atlas.texture.width + 2, texture_atlas.texture.height + 2 }, 1.0f, YELLOW);
 
                 if (currently_selected_rectangle != NULL) {
@@ -243,24 +329,12 @@ int main (int argc, const char* argv[]) {
                 }
             }
 
-            if (currently_selected_rectangle != NULL) {
-                int x = (int)(mouse_world_position.x - currently_selected_rectangle->x);
-                int y = (int)(mouse_world_position.y - currently_selected_rectangle->y);
+            if (GuiButton (CLITERAL(Rectangle){ 32, 96, 128, 48 }, "Export Assets")) {
+                ExportData ();
+            }
 
-                const char* coordinates = TextFormat ("%d, %d", x, y);
-
-                Vector2 text_size = MeasureTextEx (GetFontDefault (), coordinates, 40, 1.0f);
-                Vector2 render_position = Vector2Subtract (GetMousePosition (), Vector2SubtractValue (text_size, 2));
-
-                Rectangle tooltip = CLITERAL(Rectangle) {
-                    .x = render_position.x - 2,
-                    .y = render_position.y - 2,
-                    .width = text_size.x + 2,
-                    .height = text_size.y + 2
-                };
-
-                DrawRectangleRec (tooltip, Fade (BLACK, 0.5f));
-                DrawTextEx (GetFontDefault (), coordinates, render_position, 40, 1.0f, RAYWHITE);
+            if (GuiButton (CLITERAL(Rectangle){ 32, 160, 128, 48 }, "Import Assets")) {
+                ImportData ();
             }
 
             DrawFPS (8, 8);
@@ -274,6 +348,7 @@ int main (int argc, const char* argv[]) {
     free (sprites);
 
     UnloadRenderTexture (texture_atlas);
+    UnloadTexture (test_texture);
 
     CloseWindow ();
 
