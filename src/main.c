@@ -4,12 +4,12 @@
 #include <raymath.h>
 
 #include <raygui.h>
-#include <rini.h>
+#include <parson.h>
 
-#include <stdint.h>
-#include <stdlib.h>
-#include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <stdio.h>
 #include <sys/stat.h>
 
 #define WGT_TOOLBAR_IMPL
@@ -61,6 +61,8 @@ static void ExportData (void);
 static void ImportData (void);
 
 static void NewProject (const char* name);
+static void SaveProject (const char* name);
+static void LoadProject (const char* name);
 
 int main (int argc, const char* argv[]) {
     InitWindow (WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE);
@@ -135,6 +137,11 @@ int main (int argc, const char* argv[]) {
 
         if (toolbar_state.button_new_project_pressed) {
             NewProject ("test");
+        }
+
+        if (toolbar_state.button_load_project_pressed) {
+            LoadAndFilterAssets ();
+            RenderRectangleSizes ();
         }
 
         BeginDrawing ();
@@ -412,13 +419,27 @@ void NewProject (const char* name) {
 
     ChangeDirectory (TextFormat ("%s/%s", PROJECT_DIR, name));
 
-    rini_config config = rini_load_config (NULL);
+    JSON_Value* root_value = json_value_init_object ();
+    JSON_Object* root_object = json_value_get_object (root_value);
 
-    rini_set_config_value (&config, "ATLAS_SIZE", ATLAS_SIZE, "");
-    rini_set_config_value (&config, "SPRITE_COUNT", files.count, "");
+    // Array
+    JSON_Value* rectangle_array_value = json_value_init_array ();
+    JSON_Array* rectangle_array = json_value_get_array (rectangle_array_value);
 
-    rini_save_config (config, "project.ini", "");
-    rini_unload_config (&config);
+    for (size_t i = 0; i < files.count; i++) {
+        JSON_Value* rectangle_value = json_value_init_object ();
+        JSON_Object* rectangle_object = json_value_get_object (rectangle_value);
 
-    system ("echo test >> out.txt");
+        json_object_set_number (rectangle_object, "x", sprites[i].source.x);
+        json_object_set_number (rectangle_object, "y", sprites[i].source.y);
+        json_object_set_number (rectangle_object, "width", sprites[i].source.width);
+        json_object_set_number (rectangle_object, "height", sprites[i].source.height);
+
+        json_array_append_value (rectangle_array, rectangle_value);
+    }
+
+    json_object_set_value (root_object, "sprites", rectangle_array_value);
+
+    json_serialize_to_file_pretty (root_value, "test.json");
+    json_value_free (root_value);
 }
