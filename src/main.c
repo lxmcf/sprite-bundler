@@ -8,9 +8,13 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
 
-#define WINDOW_WIDTH 1280
-#define WINDOW_HEIGHT 720
+#define WGT_TOOLBAR_IMPL
+#include "widgets/toolbar.h"
+
+#define WINDOW_WIDTH 1200
+#define WINDOW_HEIGHT 800
 #define WINDOW_TITLE "Hello World"
 
 #define ATLAS_SIZE 1024
@@ -44,6 +48,8 @@ static RenderTexture2D texture_atlas;
 static Rectangle* currently_selected_rectangle;
 static RTX_Sprite* currently_selected_sprite;
 
+static WGT_ToolbarState toolbar_state;
+
 static uint64_t hash (const char* key);
 static int CompareTextureRectangles (const void* a, const void* b);
 static void LoadAndFilterAssets (void);
@@ -51,10 +57,15 @@ static void RenderRectangleSizes (void);
 static void ExportData (void);
 static void ImportData (void);
 
+static void NewProject (const char* name);
+
 int main (int argc, const char* argv[]) {
     InitWindow (WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE);
 
     SetWindowState (FLAG_WINDOW_RESIZABLE);
+    SetWindowMinSize (WINDOW_WIDTH, WINDOW_HEIGHT);
+
+    toolbar_state = WGT_InitToolbarState ();
 
     {   // Set framerate to max
         #define DEFAULT_TARGET_FPS 60
@@ -71,6 +82,8 @@ int main (int argc, const char* argv[]) {
 
     Camera2D camera = { 0 };
     camera.zoom = 1.0f;
+    camera.offset = CLITERAL(Vector2){ GetScreenWidth () / 2, GetScreenHeight () / 2 };
+    camera.target = CLITERAL(Vector2){ ATLAS_SIZE / 2, ATLAS_SIZE / 2 };
 
     while (!WindowShouldClose ()) {
         // -----------------------------------------------------------------------------
@@ -94,6 +107,10 @@ int main (int argc, const char* argv[]) {
 
             camera.zoom += (wheel * zoom_amount);
             if (camera.zoom < zoom_amount) camera.zoom = zoom_amount;
+        }
+
+        if (toolbar_state.button_new_project_pressed) {
+            NewProject ("Test");
         }
 
         // -----------------------------------------------------------------------------
@@ -139,22 +156,7 @@ int main (int argc, const char* argv[]) {
                 }
             EndMode2D ();
 
-            if (GuiButton (CLITERAL(Rectangle){ 32, 32, 128, 48 }, "Load Assets")) {
-                if (!sprites) {
-                    LoadAndFilterAssets ();
-                    RenderRectangleSizes ();
-                }
-            }
-
-            if (GuiButton (CLITERAL(Rectangle){ 32, 96, 128, 48 }, "Export Assets")) {
-                ExportData ();
-            }
-
-            if (GuiButton (CLITERAL(Rectangle){ 32, 160, 128, 48 }, "Import Assets")) {
-                ImportData ();
-            }
-
-            DrawFPS (8, 8);
+            WGT_GuiToolbar (&toolbar_state);
         EndDrawing ();
     }
 
@@ -328,7 +330,7 @@ void ExportData (void) {
 }
 
 void ImportData (void) {
-    FILE* import_file = fopen("data.dat", "rb");
+    FILE* import_file = fopen ("data.dat", "rb");
 
     int file_count;
     int data_compressed_size, data_decompressed_size;
@@ -390,4 +392,16 @@ void ImportData (void) {
     } else {
         TraceLog (LOG_ERROR, "Failed to open file!");
     }
+}
+
+void NewProject (const char* name) {
+    if (DirectoryExists (name)) {
+        TraceLog (LOG_ERROR, "Project [%s] already exists!", name);
+
+        return;
+    }
+
+    mkdir (name, 0777);
+
+    mkdir (TextFormat ("%s/assets", name), 0777);
 }
