@@ -2,7 +2,9 @@
 
 #include <raylib.h>
 #include <raymath.h>
+
 #include <raygui.h>
+#include <rini.h>
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -23,6 +25,7 @@
 #define MAX_ASSET_NAME_LENGTH 32
 
 #define ASSET_DIR "assets"
+#define PROJECT_DIR "projects"
 
 typedef struct RTX_Sprite {
     size_t id;
@@ -78,6 +81,10 @@ int main (int argc, const char* argv[]) {
         SetTargetFPS (fps);
     }
 
+    {
+        if (!DirectoryExists (PROJECT_DIR)) mkdir (PROJECT_DIR, 0777);
+    }
+
     texture_atlas = LoadRenderTexture (ATLAS_SIZE, ATLAS_SIZE);
 
     Camera2D camera = { 0 };
@@ -109,10 +116,6 @@ int main (int argc, const char* argv[]) {
             if (camera.zoom < zoom_amount) camera.zoom = zoom_amount;
         }
 
-        if (toolbar_state.button_new_project_pressed) {
-            NewProject ("Test");
-        }
-
         // -----------------------------------------------------------------------------
         // Rectangle Collision
         // -----------------------------------------------------------------------------
@@ -128,6 +131,10 @@ int main (int argc, const char* argv[]) {
                 currently_selected_rectangle = &current_sprite->source;
                 break;
             }
+        }
+
+        if (toolbar_state.button_new_project_pressed) {
+            NewProject ("test");
         }
 
         BeginDrawing ();
@@ -273,7 +280,7 @@ static void RenderRectangleSizes (void) {
         for (size_t i = 0; i < files.count; i++) {
             RTX_Sprite* current_sprite = &sprites[i];
 
-            DrawTextureV ((*current_sprite).texture, CLITERAL(Vector2){ current_sprite->source.x, current_sprite->source.y }, WHITE);
+            DrawTextureV (current_sprite->texture, CLITERAL(Vector2){ current_sprite->source.x, current_sprite->source.y }, WHITE);
         }
     EndTextureMode ();
 
@@ -375,7 +382,6 @@ void ImportData (void) {
 
             fread (&current_sprite->hash, sizeof (uint64_t), 1, import_file);
             fread (current_sprite->name, sizeof (char), MAX_ASSET_NAME_LENGTH, import_file);
-            TraceLog (LOG_INFO, "%s", current_sprite->name);
 
             fread (&current_sprite->source.x, sizeof (float), 1, import_file);
             fread (&current_sprite->source.y, sizeof (float), 1, import_file);
@@ -401,7 +407,18 @@ void NewProject (const char* name) {
         return;
     }
 
-    mkdir (name, 0777);
+    mkdir (TextFormat ("%s/%s", PROJECT_DIR, name), 0777);
+    mkdir (TextFormat ("%s/%s/assets", PROJECT_DIR, name), 0777);
 
-    mkdir (TextFormat ("%s/assets", name), 0777);
+    ChangeDirectory (TextFormat ("%s/%s", PROJECT_DIR, name));
+
+    rini_config config = rini_load_config (NULL);
+
+    rini_set_config_value (&config, "ATLAS_SIZE", ATLAS_SIZE, "");
+    rini_set_config_value (&config, "SPRITE_COUNT", files.count, "");
+
+    rini_save_config (config, "project.ini", "");
+    rini_unload_config (&config);
+
+    system ("echo test >> out.txt");
 }
