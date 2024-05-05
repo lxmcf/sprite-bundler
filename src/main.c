@@ -1,19 +1,17 @@
 // TODO: Move to something more dedicated for rectangle packing
 
-#include <raylib.h>
-#include <raymath.h>
+#include "types.h"
 
+#include <raymath.h>
 #include <raygui.h>
-#include <parson.h>
 
 #include <string.h>
 #include <stdlib.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <sys/stat.h>
 
 #define WGT_TOOLBAR_IMPL
 #include "widgets/toolbar.h"
+
+#include "project/project.h"
 
 #define WINDOW_WIDTH 1200
 #define WINDOW_HEIGHT 800
@@ -22,34 +20,13 @@
 #define ATLAS_SIZE 1024
 #define ATLAS_ITEM_MIN_SIZE 16
 
-#define MAX_ASSET_NAME_LENGTH 32
-
-#define ASSET_DIR "assets"
-#define PROJECT_DIR "projects"
-
-typedef struct RTX_Sprite {
-    size_t id;
-
-    uint64_t hash;
-    char name[MAX_ASSET_NAME_LENGTH];
-
-    Texture2D texture;
-
-    Rectangle source;
-    Vector2 origin;
-} RTX_Sprite;
-
-struct {
-    int mode;
-} STATE;
-
-static RTX_Sprite* sprites;
+static RSP_Sprite* sprites;
 static FilePathList files;
 
 static RenderTexture2D texture_atlas;
 
 static Rectangle* currently_selected_rectangle;
-static RTX_Sprite* currently_selected_sprite;
+static RSP_Sprite* currently_selected_sprite;
 
 static WGT_ToolbarState toolbar_state;
 
@@ -57,12 +34,8 @@ static uint64_t hash (const char* key);
 static int CompareTextureRectangles (const void* a, const void* b);
 static void LoadAndFilterAssets (void);
 static void RenderRectangleSizes (void);
-static void ExportData (void);
-static void ImportData (void);
 
-static void NewProject (const char* name);
-static void SaveProject (const char* name);
-static void LoadProject (const char* name);
+static void CopyFile (const char* source, const char* destination);
 
 int main (int argc, const char* argv[]) {
     InitWindow (WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE);
@@ -81,10 +54,6 @@ int main (int argc, const char* argv[]) {
         if (fps <= 0) fps = DEFAULT_TARGET_FPS;
 
         SetTargetFPS (fps);
-    }
-
-    {
-        if (!DirectoryExists (PROJECT_DIR)) mkdir (PROJECT_DIR, 0777);
     }
 
     texture_atlas = LoadRenderTexture (ATLAS_SIZE, ATLAS_SIZE);
@@ -127,7 +96,7 @@ int main (int argc, const char* argv[]) {
             currently_selected_rectangle = NULL;
             currently_selected_sprite = NULL;
 
-            RTX_Sprite* current_sprite = &sprites[i];
+            RSP_Sprite* current_sprite = &sprites[i];
 
             if (CheckCollisionPointRec (mouse_world_position, current_sprite->source)) {
                 currently_selected_rectangle = &current_sprite->source;
@@ -136,7 +105,7 @@ int main (int argc, const char* argv[]) {
         }
 
         if (toolbar_state.button_new_project_pressed) {
-            NewProject ("test");
+            RSP_CreateEmptyProject ("new_project", NULL);
         }
 
         if (toolbar_state.button_load_project_pressed) {
@@ -202,8 +171,8 @@ uint64_t hash (const char* key) {
 }
 
 static int CompareTextureRectangles (const void* a, const void* b) {
-    RTX_Sprite* sprite_a = (RTX_Sprite*)a;
-    RTX_Sprite* sprite_b = (RTX_Sprite*)b;
+    RSP_Sprite* sprite_a = (RSP_Sprite*)a;
+    RSP_Sprite* sprite_b = (RSP_Sprite*)b;
 
     int mass_a = (int)(sprite_a->source.width * sprite_a->source.height);
     int mass_b = (int)(sprite_b->source.width * sprite_b->source.height);
@@ -229,19 +198,21 @@ static int CompareTextureRectangles (const void* a, const void* b) {
 }
 
 void LoadAndFilterAssets (void) {
-    files = LoadDirectoryFiles (ASSET_DIR);
+    files = LoadDirectoryFiles ("assets");
 
     if (files.count == 0) {
-        TraceLog (LOG_INFO, "No files found in [%s]", ASSET_DIR);
+        TraceLog (LOG_ERROR, "No files found in [%s]", "assets");
         return;
     }
 
-    sprites = calloc (files.count, sizeof (RTX_Sprite));
+    sprites = calloc (files.count, sizeof (RSP_Sprite));
 
     for (size_t i = 0; i < files.count; i++) {
         Texture2D texture = LoadTexture (files.paths[i]);
 
-        sprites[i] = CLITERAL(RTX_Sprite) {
+        // CopyFile (files.paths[i], TextFormat ("projects/new_project/textures/%s", GetFileName (files.paths[i])));
+
+        sprites[i] = CLITERAL(RSP_Sprite) {
             .texture = texture,
 
             .source = CLITERAL(Rectangle) { 0, 0, texture.width, texture.height },
@@ -252,9 +223,7 @@ void LoadAndFilterAssets (void) {
         sprites[i].hash = hash (sprites[i].name);
     }
 
-    qsort (sprites, files.count, sizeof (RTX_Sprite), CompareTextureRectangles);
-
-    for (size_t i = 0; i < files.count; i++) sprites[i].id = i;
+    qsort (sprites, files.count, sizeof (RSP_Sprite), CompareTextureRectangles);
 }
 
 static void RenderRectangleSizes (void) {
@@ -285,7 +254,7 @@ static void RenderRectangleSizes (void) {
         ClearBackground (Fade (BLACK, 0));
 
         for (size_t i = 0; i < files.count; i++) {
-            RTX_Sprite* current_sprite = &sprites[i];
+            RSP_Sprite* current_sprite = &sprites[i];
 
             DrawTextureV (current_sprite->texture, CLITERAL(Vector2){ current_sprite->source.x, current_sprite->source.y }, WHITE);
         }
@@ -299,147 +268,13 @@ static void RenderRectangleSizes (void) {
     UnloadImage (atlas_image);
 }
 
-void ExportData (void) {
-    FILE* output_file = fopen ("data.dat", "wb");
+void CopyFile (const char* source, const char* destination) {
+    unsigned char* source_file;
+    int file_length;
 
-    if (output_file) {
-        fwrite (&files.count, sizeof (unsigned int), 1, output_file);
+    source_file = LoadFileData (source, &file_length);
 
-        int atlas_size;
-        int atlas_compressed_size;
+    SaveFileData (destination, source_file, file_length);
 
-        Image atlas_image = LoadImageFromTexture (texture_atlas.texture);
-
-        unsigned char* data = ExportImageToMemory (atlas_image, ".png", &atlas_size);
-        unsigned char* compressed_data = CompressData (data, atlas_size, &atlas_compressed_size);
-
-        free (data);
-
-        fwrite (&atlas_compressed_size, sizeof (int), 1, output_file);
-        fwrite (compressed_data, sizeof (unsigned char), atlas_compressed_size, output_file);
-
-        free (compressed_data);
-
-        UnloadImage (atlas_image);
-
-        for (int i = 0; i < files.count; i++) {
-            RTX_Sprite* sprite = &sprites[i];
-
-            fwrite (&sprite->hash, sizeof (uint64_t), 1, output_file);
-            fwrite (sprite->name, sizeof (char), MAX_ASSET_NAME_LENGTH, output_file);
-
-            fwrite (&sprite->source.x, sizeof (float), 1, output_file);
-            fwrite (&sprite->source.y, sizeof (float), 1, output_file);
-            fwrite (&sprite->source.width, sizeof (float), 1, output_file);
-            fwrite (&sprite->source.height, sizeof (float), 1, output_file);
-
-            fwrite (&sprite->origin.x, sizeof (float), 1, output_file);
-            fwrite (&sprite->origin.y, sizeof (float), 1, output_file);
-        }
-
-        fclose (output_file);
-    } else {
-        TraceLog (LOG_ERROR, "Failed to open file!");
-    }
-}
-
-void ImportData (void) {
-    FILE* import_file = fopen ("data.dat", "rb");
-
-    int file_count;
-    int data_compressed_size, data_decompressed_size;
-
-    if (import_file) {
-        fread (&file_count, sizeof(unsigned int), 1, import_file);
-        fread (&data_compressed_size, sizeof (int), 1, import_file);
-        TraceLog (LOG_INFO, "%d", data_compressed_size);
-
-        unsigned char* compressed_data = calloc (data_compressed_size, sizeof (unsigned char));
-        unsigned char* decompressed_data;
-
-        fread (compressed_data, sizeof (unsigned char), data_compressed_size, import_file);
-
-        decompressed_data = DecompressData (compressed_data, data_compressed_size, &data_decompressed_size);
-
-        Image atlas_image = LoadImageFromMemory (".png", decompressed_data, data_decompressed_size);
-        ImageFlipVertical (&atlas_image);
-
-        Texture2D atlas_texture = LoadTextureFromImage (atlas_image);
-
-        free (compressed_data);
-        free (decompressed_data);
-
-        BeginTextureMode (texture_atlas);
-            ClearBackground (Fade (BLACK, 0));
-
-            DrawTexture (atlas_texture, 0, 0, WHITE);
-        EndTextureMode ();
-
-        UnloadImage (atlas_image);
-        UnloadTexture (atlas_texture);
-
-        if (sprites != NULL) {
-            free (sprites);
-        }
-
-        sprites = calloc(file_count, sizeof(RTX_Sprite));
-
-        for (int i = 0; i < file_count; i++) {
-            RTX_Sprite* current_sprite = &sprites[i];
-
-            fread (&current_sprite->hash, sizeof (uint64_t), 1, import_file);
-            fread (current_sprite->name, sizeof (char), MAX_ASSET_NAME_LENGTH, import_file);
-
-            fread (&current_sprite->source.x, sizeof (float), 1, import_file);
-            fread (&current_sprite->source.y, sizeof (float), 1, import_file);
-            fread (&current_sprite->source.width, sizeof (float), 1, import_file);
-            fread (&current_sprite->source.height, sizeof (float), 1, import_file);
-
-            fread (&current_sprite->origin.x, sizeof (float), 1, import_file);
-            fread (&current_sprite->origin.y, sizeof (float), 1, import_file);
-        }
-
-        files.count = file_count;
-
-        fclose (import_file);
-    } else {
-        TraceLog (LOG_ERROR, "Failed to open file!");
-    }
-}
-
-void NewProject (const char* name) {
-    if (DirectoryExists (name)) {
-        TraceLog (LOG_ERROR, "Project [%s] already exists!", name);
-
-        return;
-    }
-
-    mkdir (TextFormat ("%s/%s", PROJECT_DIR, name), 0777);
-    mkdir (TextFormat ("%s/%s/assets", PROJECT_DIR, name), 0777);
-
-    ChangeDirectory (TextFormat ("%s/%s", PROJECT_DIR, name));
-
-    JSON_Value* root_value = json_value_init_object ();
-    JSON_Object* root_object = json_value_get_object (root_value);
-
-    // Array
-    JSON_Value* rectangle_array_value = json_value_init_array ();
-    JSON_Array* rectangle_array = json_value_get_array (rectangle_array_value);
-
-    for (size_t i = 0; i < files.count; i++) {
-        JSON_Value* rectangle_value = json_value_init_object ();
-        JSON_Object* rectangle_object = json_value_get_object (rectangle_value);
-
-        json_object_set_number (rectangle_object, "x", sprites[i].source.x);
-        json_object_set_number (rectangle_object, "y", sprites[i].source.y);
-        json_object_set_number (rectangle_object, "width", sprites[i].source.width);
-        json_object_set_number (rectangle_object, "height", sprites[i].source.height);
-
-        json_array_append_value (rectangle_array, rectangle_value);
-    }
-
-    json_object_set_value (root_object, "sprites", rectangle_array_value);
-
-    json_serialize_to_file_pretty (root_value, "test.json");
-    json_value_free (root_value);
+    MemFree (source_file);
 }

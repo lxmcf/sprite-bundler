@@ -1,0 +1,107 @@
+void ExportData (void) {
+    FILE* output_file = fopen ("data.dat", "wb");
+
+    if (output_file) {
+        fwrite (&files.count, sizeof (unsigned int), 1, output_file);
+
+        int atlas_size;
+        int atlas_compressed_size;
+
+        Image atlas_image = LoadImageFromTexture (texture_atlas.texture);
+
+        unsigned char* data = ExportImageToMemory (atlas_image, ".png", &atlas_size);
+        unsigned char* compressed_data = CompressData (data, atlas_size, &atlas_compressed_size);
+
+        free (data);
+
+        fwrite (&atlas_compressed_size, sizeof (int), 1, output_file);
+        fwrite (compressed_data, sizeof (unsigned char), atlas_compressed_size, output_file);
+
+        free (compressed_data);
+
+        UnloadImage (atlas_image);
+
+        for (int i = 0; i < files.count; i++) {
+            RSP_Sprite* sprite = &sprites[i];
+
+            fwrite (&sprite->hash, sizeof (uint64_t), 1, output_file);
+            fwrite (sprite->name, sizeof (char), MAX_ASSET_NAME_LENGTH, output_file);
+
+            fwrite (&sprite->source.x, sizeof (float), 1, output_file);
+            fwrite (&sprite->source.y, sizeof (float), 1, output_file);
+            fwrite (&sprite->source.width, sizeof (float), 1, output_file);
+            fwrite (&sprite->source.height, sizeof (float), 1, output_file);
+
+            fwrite (&sprite->origin.x, sizeof (float), 1, output_file);
+            fwrite (&sprite->origin.y, sizeof (float), 1, output_file);
+        }
+
+        fclose (output_file);
+    } else {
+        TraceLog (LOG_ERROR, "Failed to open file!");
+    }
+}
+
+void ImportData (void) {
+    FILE* import_file = fopen ("data.dat", "rb");
+
+    int file_count;
+    int data_compressed_size, data_decompressed_size;
+
+    if (import_file) {
+        fread (&file_count, sizeof(unsigned int), 1, import_file);
+        fread (&data_compressed_size, sizeof (int), 1, import_file);
+        TraceLog (LOG_INFO, "%d", data_compressed_size);
+
+        unsigned char* compressed_data = calloc (data_compressed_size, sizeof (unsigned char));
+        unsigned char* decompressed_data;
+
+        fread (compressed_data, sizeof (unsigned char), data_compressed_size, import_file);
+
+        decompressed_data = DecompressData (compressed_data, data_compressed_size, &data_decompressed_size);
+
+        Image atlas_image = LoadImageFromMemory (".png", decompressed_data, data_decompressed_size);
+        ImageFlipVertical (&atlas_image);
+
+        Texture2D atlas_texture = LoadTextureFromImage (atlas_image);
+
+        free (compressed_data);
+        free (decompressed_data);
+
+        BeginTextureMode (texture_atlas);
+            ClearBackground (Fade (BLACK, 0));
+
+            DrawTexture (atlas_texture, 0, 0, WHITE);
+        EndTextureMode ();
+
+        UnloadImage (atlas_image);
+        UnloadTexture (atlas_texture);
+
+        if (sprites != NULL) {
+            free (sprites);
+        }
+
+        sprites = calloc(file_count, sizeof(RSP_Sprite));
+
+        for (int i = 0; i < file_count; i++) {
+            RSP_Sprite* current_sprite = &sprites[i];
+
+            fread (&current_sprite->hash, sizeof (uint64_t), 1, import_file);
+            fread (current_sprite->name, sizeof (char), MAX_ASSET_NAME_LENGTH, import_file);
+
+            fread (&current_sprite->source.x, sizeof (float), 1, import_file);
+            fread (&current_sprite->source.y, sizeof (float), 1, import_file);
+            fread (&current_sprite->source.width, sizeof (float), 1, import_file);
+            fread (&current_sprite->source.height, sizeof (float), 1, import_file);
+
+            fread (&current_sprite->origin.x, sizeof (float), 1, import_file);
+            fread (&current_sprite->origin.y, sizeof (float), 1, import_file);
+        }
+
+        files.count = file_count;
+
+        fclose (import_file);
+    } else {
+        TraceLog (LOG_ERROR, "Failed to open file!");
+    }
+}
