@@ -24,22 +24,26 @@ typedef struct RSP_Sprite {
 
 #define MAX_PROJECT_NAME_LENGTH 32
 typedef struct RSP_Project {
-    char name[MAX_PROJECT_NAME_LENGTH];
     int version;
-
-    FilePathList files;
+    char name[MAX_PROJECT_NAME_LENGTH];
 
     RSP_Sprite* sprites;
-    size_t sprite_count;
 
-    int texture_atlas_size;
-    RenderTexture2D texture_atlas;
+    struct {
+        int size;
+        size_t sprite_count;
+
+        RenderTexture2D texture;
+    } atlas;
+
+    FilePathList files;
 } RSP_Project;
 
 typedef enum RSP_ProjectError {
     RSP_PROJECT_ERROR_NONE,
     RSP_PROJECT_ERROR_EXISTS,
-    RSP_PROJECT_ERROR_NOT_EXIST
+    RSP_PROJECT_ERROR_NOT_EXIST,
+    RSP_PROJECT_ERROR_INVALID,
 } RSP_ProjectError;
 
 typedef enum RSP_BundleError {

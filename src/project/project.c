@@ -19,6 +19,12 @@ static JSON_Status _CreateBlankProjectFile (const char* project_file, const char
 RSP_ProjectError RSP_CreateEmptyProject (const char* project_name, RSP_Project* project) {
     if (!DirectoryExists (DEFAULT_PROJECT_DIRECTORY)) MakeDirectoy (DEFAULT_PROJECT_DIRECTORY);
 
+    if (!project) {
+        TraceLog (LOG_ERROR, "Provided project is not valid!");
+
+        return RSP_PROJECT_ERROR_INVALID;
+    }
+
     const char* project_directory = TextFormat ("%s/%s/", DEFAULT_PROJECT_DIRECTORY, project_name);
     const char* project_file = TextFormat ("%s/projects%s", project_directory, DEFAULT_PROJECT_EXTENSION);
 
@@ -32,6 +38,7 @@ RSP_ProjectError RSP_CreateEmptyProject (const char* project_name, RSP_Project* 
     MakeDirectoy (TextFormat ("%s/textures", project_directory));
 
     _CreateBlankProjectFile (project_file, project_name);
+
 
     return RSP_PROJECT_ERROR_NONE;
 }
@@ -52,7 +59,7 @@ RSP_ProjectError RSP_LoadProject (const char* project_name, RSP_Project* project
 void RSP_UnloadProject (RSP_Project* project) {
     UnloadDirectoryFiles (project->files);
 
-    for (size_t i = 0; i < project->sprite_count; i++) {
+    for (size_t i = 0; i < project->atlas.sprite_count; i++) {
         if (project->sprites[i].animation_frame_count == 0) continue;
 
         MemFree (project->sprites[i].animation_frames);
@@ -60,7 +67,7 @@ void RSP_UnloadProject (RSP_Project* project) {
 
     MemFree (project->sprites);
 
-    UnloadRenderTexture (project->texture_atlas);
+    UnloadRenderTexture (project->atlas.texture);
 }
 
 JSON_Status _CreateBlankProjectFile (const char* project_file, const char* project_name) {
