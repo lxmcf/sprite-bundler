@@ -9,6 +9,7 @@ extern "C" {
 
 RSP_ProjectError RSP_CreateEmptyProject (const char* project_name, RSP_Project* project);
 RSP_ProjectError RSP_LoadProject (const char* project_name, RSP_Project* project);
+RSP_ProjectError RSP_SaveProject (RSP_Project* project);
 
 void RSP_UnloadProject (RSP_Project* project);
 

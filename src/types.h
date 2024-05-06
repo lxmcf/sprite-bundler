@@ -10,7 +10,7 @@
 typedef struct RSP_Sprite {
     uint64_t hash;
     char name[MAX_ASSET_NAME_LENGTH];
-
+    // TODO: Add flags to only save 'altered' data
     // TODO: Move to Image to avoid GPU memory usage
     Texture2D texture;
 

@@ -11,6 +11,8 @@
 #define WGT_TOOLBAR_IMPL
 #include "widgets/toolbar.h"
 
+#include <gui_window_file_dialog.h>
+
 #include "project/project.h"
 
 #define WINDOW_WIDTH 1200
@@ -19,6 +21,8 @@
 
 #define ATLAS_SIZE 1024
 #define ATLAS_ITEM_MIN_SIZE 16
+
+RSP_Project main_project;
 
 static RSP_Sprite* sprites;
 static FilePathList files;
@@ -35,7 +39,7 @@ static int CompareTextureRectangles (const void* a, const void* b);
 static void LoadAndFilterAssets (void);
 static void RenderRectangleSizes (void);
 
-static void CopyFile (const char* source, const char* destination);
+void CopyFile (const char* source, const char* destination);
 
 int main (int argc, const char* argv[]) {
     InitWindow (WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE);
@@ -45,7 +49,7 @@ int main (int argc, const char* argv[]) {
 
     toolbar_state = WGT_InitToolbarState ();
 
-    {   // Set framerate to max
+    {   // Set framerate to max supported
         #define DEFAULT_TARGET_FPS 60
         int current_monitor = GetCurrentMonitor ();
         int fps = GetMonitorRefreshRate (current_monitor);
@@ -57,6 +61,9 @@ int main (int argc, const char* argv[]) {
     }
 
     texture_atlas = LoadRenderTexture (ATLAS_SIZE, ATLAS_SIZE);
+
+    // GuiWindowFileDialogState fileDialogState = InitGuiWindowFileDialog(GetWorkingDirectory());
+    // fileDialogState.windowActive = true;
 
     Camera2D camera = { 0 };
     camera.zoom = 1.0f;
@@ -105,12 +112,14 @@ int main (int argc, const char* argv[]) {
         }
 
         if (toolbar_state.button_new_project_pressed) {
-            RSP_CreateEmptyProject ("new_project", NULL);
+            RSP_CreateEmptyProject ("new_project", &main_project);
         }
 
         if (toolbar_state.button_load_project_pressed) {
-            LoadAndFilterAssets ();
-            RenderRectangleSizes ();
+            // LoadAndFilterAssets ();
+            // RenderRectangleSizes ();
+
+            RSP_SaveProject (&main_project);
         }
 
         BeginDrawing ();
@@ -140,6 +149,8 @@ int main (int argc, const char* argv[]) {
             EndMode2D ();
 
             WGT_GuiToolbar (&toolbar_state);
+
+            // GuiWindowFileDialog(&fileDialogState);
         EndDrawing ();
     }
 
@@ -148,6 +159,8 @@ int main (int argc, const char* argv[]) {
     }
 
     free (sprites);
+
+    RSP_UnloadProject (&main_project);
 
     UnloadRenderTexture (texture_atlas);
 
