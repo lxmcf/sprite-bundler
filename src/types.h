@@ -7,9 +7,10 @@
 #include <stddef.h>
 
 #define MAX_ASSET_NAME_LENGTH 32
+#define MAX_ASSET_FILENAME_LENGTH 1028
 typedef struct RSP_Sprite {
-    uint64_t hash;
     char name[MAX_ASSET_NAME_LENGTH];
+    char file[MAX_ASSET_FILENAME_LENGTH];
     // TODO: Add flags to only save 'altered' data
     // TODO: Move to Image to avoid GPU memory usage
     Texture2D texture;

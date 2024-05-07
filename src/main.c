@@ -24,7 +24,6 @@
 
 RSP_Project main_project;
 
-static RSP_Sprite* sprites;
 static FilePathList files;
 
 static RenderTexture2D texture_atlas;
@@ -99,11 +98,11 @@ int main (int argc, const char* argv[]) {
         // -----------------------------------------------------------------------------
         Vector2 mouse_world_position = GetScreenToWorld2D (GetMousePosition (), camera);
 
-        for (size_t i = 0; i < files.count; i++) {
+        for (size_t i = 0; i < main_project.atlas.sprite_count; i++) {
             currently_selected_rectangle = NULL;
             currently_selected_sprite = NULL;
 
-            RSP_Sprite* current_sprite = &sprites[i];
+            RSP_Sprite* current_sprite = &main_project.sprites[i];
 
             if (CheckCollisionPointRec (mouse_world_position, current_sprite->source)) {
                 currently_selected_rectangle = &current_sprite->source;
@@ -113,13 +112,16 @@ int main (int argc, const char* argv[]) {
 
         if (toolbar_state.button_new_project_pressed) {
             RSP_CreateEmptyProject ("new_project", &main_project);
+            LoadAndFilterAssets ();
+            RenderRectangleSizes ();
+
+            RSP_SaveProject (&main_project);
         }
 
         if (toolbar_state.button_load_project_pressed) {
-            // LoadAndFilterAssets ();
-            // RenderRectangleSizes ();
+            RSP_LoadProject ("new_project", &main_project);
 
-            RSP_SaveProject (&main_project);
+            RenderRectangleSizes ();
         }
 
         BeginDrawing ();
@@ -131,6 +133,11 @@ int main (int argc, const char* argv[]) {
 
                 if (currently_selected_rectangle != NULL) {
                     DrawRectangleLinesEx (*currently_selected_rectangle, 1.0f, GREEN);
+
+                    mouse_world_position = CLITERAL(Vector2) {
+                        floorf (mouse_world_position.x),
+                        floorf (mouse_world_position.y),
+                    };
 
                     DrawLineV (
                         CLITERAL(Vector2){ .x = currently_selected_rectangle->x, .y = mouse_world_position.y },
@@ -153,12 +160,6 @@ int main (int argc, const char* argv[]) {
             // GuiWindowFileDialog(&fileDialogState);
         EndDrawing ();
     }
-
-    for (size_t i = 0; i < files.count; i++) {
-        UnloadTexture (sprites[i].texture);
-    }
-
-    free (sprites);
 
     RSP_UnloadProject (&main_project);
 
@@ -218,36 +219,40 @@ void LoadAndFilterAssets (void) {
         return;
     }
 
-    sprites = calloc (files.count, sizeof (RSP_Sprite));
+    main_project.sprites = calloc (files.count, sizeof (RSP_Sprite));
 
     for (size_t i = 0; i < files.count; i++) {
         Texture2D texture = LoadTexture (files.paths[i]);
 
-        // CopyFile (files.paths[i], TextFormat ("projects/new_project/textures/%s", GetFileName (files.paths[i])));
+        const char* new_filename = TextFormat ("projects/%s/textures/%s", main_project.name, GetFileName (files.paths[i]));
 
-        sprites[i] = CLITERAL(RSP_Sprite) {
+        CopyFile (files.paths[i], new_filename);
+
+        main_project.sprites[i] = CLITERAL(RSP_Sprite) {
             .texture = texture,
 
             .source = CLITERAL(Rectangle) { 0, 0, texture.width, texture.height },
             .origin = Vector2Zero ()
         };
 
-        strncpy (sprites[i].name, GetFileNameWithoutExt (files.paths[i]), MAX_ASSET_NAME_LENGTH);
-        sprites[i].hash = hash (sprites[i].name);
+        strncpy (main_project.sprites[i].name, GetFileNameWithoutExt (files.paths[i]), MAX_ASSET_NAME_LENGTH);
+        strncpy (main_project.sprites[i].file, new_filename, MAX_ASSET_FILENAME_LENGTH);
     }
 
-    qsort (sprites, files.count, sizeof (RSP_Sprite), CompareTextureRectangles);
+    main_project.atlas.sprite_count = files.count;
+
+    qsort (main_project.sprites, files.count, sizeof (RSP_Sprite), CompareTextureRectangles);
 }
 
 static void RenderRectangleSizes (void) {
     int textures_placed = 0;
 
     for (size_t i = 0; i < files.count; i++) {
-        Rectangle* current_rectangle = &sprites[i].source;
+        Rectangle* current_rectangle = &main_project.sprites[i].source;
 
         for (size_t j = 0; j < textures_placed; j++) {
-            while (CheckCollisionRecs (*current_rectangle, sprites[j].source)) {
-                current_rectangle->x += sprites[j].source.width;
+            while (CheckCollisionRecs (*current_rectangle, main_project.sprites[j].source)) {
+                current_rectangle->x += main_project.sprites[j].source.width;
 
                 int within_x = (current_rectangle->x + current_rectangle->width) <= ATLAS_SIZE;
 
@@ -266,8 +271,8 @@ static void RenderRectangleSizes (void) {
     BeginTextureMode (texture_atlas);
         ClearBackground (Fade (BLACK, 0));
 
-        for (size_t i = 0; i < files.count; i++) {
-            RSP_Sprite* current_sprite = &sprites[i];
+        for (size_t i = 0; i < main_project.atlas.sprite_count; i++) {
+            RSP_Sprite* current_sprite = &main_project.sprites[i];
 
             DrawTextureV (current_sprite->texture, CLITERAL(Vector2){ current_sprite->source.x, current_sprite->source.y }, WHITE);
         }
