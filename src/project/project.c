@@ -17,7 +17,7 @@
 #define DEFAULT_PROJECT_VERSION 1
 
 static JSON_Status _SaveProjectFile (const char* project_file, RSP_Project* project);
-static JSON_Status _LoadProjectFile (const char* project_file, const char* project_directory, RSP_Project* project);
+static JSON_Status _LoadProjectFile (const char* project_file, RSP_Project* project);
 
 void CopyFile (const char* source, const char* destination);
 
@@ -58,9 +58,7 @@ RSP_ProjectError RSP_CreateEmptyProject (const char* project_name, RSP_Project* 
     return RSP_PROJECT_ERROR_NONE;
 }
 
-RSP_ProjectError RSP_LoadProject (const char* project_name, RSP_Project* project) {
-    const char* project_directory = TextFormat ("%s/%s", DEFAULT_PROJECT_DIRECTORY, project_name);
-    const char* project_file = TextFormat ("%s/project%s", project_directory, DEFAULT_PROJECT_EXTENSION);
+RSP_ProjectError RSP_LoadProject (const char* project_file, RSP_Project* project) {
 
     if (!FileExists (project_file)) {
         TraceLog (LOG_ERROR, "Project [%s] does not exist!");
@@ -68,7 +66,7 @@ RSP_ProjectError RSP_LoadProject (const char* project_name, RSP_Project* project
         return RSP_PROJECT_ERROR_NOT_EXIST;
     }
 
-    _LoadProjectFile (project_file, project_directory, project);
+    _LoadProjectFile (project_file, project);
 
     return RSP_PROJECT_ERROR_NONE;
 }
@@ -149,12 +147,15 @@ JSON_Status _SaveProjectFile (const char* project_file, RSP_Project* project) {
     return status;
 }
 
-JSON_Status _LoadProjectFile (const char* project_file, const char* project_directory, RSP_Project* project) {
+JSON_Status _LoadProjectFile (const char* project_file, RSP_Project* project) {
     JSON_Value* root = json_parse_file_with_comments (project_file);
     JSON_Object* root_object = json_value_get_object (root);
 
     project->version = (int)json_object_get_number (root_object, "version");
     strncpy (project->name, json_object_get_string (root_object, "name"), MAX_PROJECT_NAME_LENGTH);
+    project->atlas.size = (int)json_object_get_number (root_object, "atlas_size");
+
+    project->atlas.texture = LoadRenderTexture (project->atlas.size, project->atlas.size);
 
     if (!root) return JSONFailure;
     JSON_Array* sprites_value = json_object_get_array (root_object, "sprites");
@@ -186,13 +187,9 @@ JSON_Status _LoadProjectFile (const char* project_file, const char* project_dire
             .texture = LoadTexture (sprite_file),
         };
 
-        // TraceLog (LOG_INFO, "%s", sprite_file);
-
         strncpy (project->sprites[i].name, sprite_name, MAX_ASSET_NAME_LENGTH);
         strncpy (project->sprites[i].file, sprite_file, MAX_ASSET_FILENAME_LENGTH);
     }
-
-    json_serialize_to_file_pretty (root, "test.json");
 
     return JSONSuccess;
 }

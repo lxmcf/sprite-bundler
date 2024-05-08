@@ -12,7 +12,6 @@ typedef struct RSP_Sprite {
     char name[MAX_ASSET_NAME_LENGTH];
     char file[MAX_ASSET_FILENAME_LENGTH];
     // TODO: Add flags to only save 'altered' data
-    // TODO: Move to Image to avoid GPU memory usage
     Texture2D texture;
 
     Rectangle source;

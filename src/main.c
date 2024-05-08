@@ -11,7 +11,8 @@
 #define WGT_TOOLBAR_IMPL
 #include "widgets/toolbar.h"
 
-#include <gui_window_file_dialog.h>
+#define WGT_WELCOME_IMPL
+#include "widgets/welcome.h"
 
 #include "project/project.h"
 
@@ -19,23 +20,21 @@
 #define WINDOW_HEIGHT 800
 #define WINDOW_TITLE "Hello World"
 
-#define ATLAS_SIZE 1024
 #define ATLAS_ITEM_MIN_SIZE 16
 
 RSP_Project main_project;
-
-static FilePathList files;
-
-static RenderTexture2D texture_atlas;
 
 static Rectangle* currently_selected_rectangle;
 static RSP_Sprite* currently_selected_sprite;
 
 static WGT_ToolbarState toolbar_state;
 
-static uint64_t hash (const char* key);
+static bool welcome_active;
+static WGT_WelcomeState welcome_state;
+
 static int CompareTextureRectangles (const void* a, const void* b);
-static void LoadAndFilterAssets (void);
+static void LoadAndFilterAssets (FilePathList* files);
+static void LoadNewAsset (const char* filename);
 static void RenderRectangleSizes (void);
 
 void CopyFile (const char* source, const char* destination);
@@ -48,6 +47,9 @@ int main (int argc, const char* argv[]) {
 
     toolbar_state = WGT_InitToolbarState ();
 
+    welcome_active = true;
+    welcome_state = WGT_InitWelcomeState ();
+
     {   // Set framerate to max supported
         #define DEFAULT_TARGET_FPS 60
         int current_monitor = GetCurrentMonitor ();
@@ -59,15 +61,10 @@ int main (int argc, const char* argv[]) {
         SetTargetFPS (fps);
     }
 
-    texture_atlas = LoadRenderTexture (ATLAS_SIZE, ATLAS_SIZE);
-
-    // GuiWindowFileDialogState fileDialogState = InitGuiWindowFileDialog(GetWorkingDirectory());
-    // fileDialogState.windowActive = true;
-
     Camera2D camera = { 0 };
     camera.zoom = 1.0f;
     camera.offset = CLITERAL(Vector2){ GetScreenWidth () / 2, GetScreenHeight () / 2 };
-    camera.target = CLITERAL(Vector2){ ATLAS_SIZE / 2, ATLAS_SIZE / 2 };
+    camera.target = CLITERAL(Vector2){ 0, 0 };
 
     while (!WindowShouldClose ()) {
         // -----------------------------------------------------------------------------
@@ -110,78 +107,86 @@ int main (int argc, const char* argv[]) {
             }
         }
 
-        if (toolbar_state.button_new_project_pressed) {
-            RSP_CreateEmptyProject ("new_project", &main_project);
-            LoadAndFilterAssets ();
-            RenderRectangleSizes ();
+        if (IsFileDropped () ) {
+            FilePathList files = LoadDroppedFiles ();
 
+            for (size_t i = 0; i < files.count; i++) {
+                LoadNewAsset (files.paths[i]);
+            }
+
+            qsort (main_project.sprites, main_project.atlas.sprite_count, sizeof (RSP_Sprite), CompareTextureRectangles);
+
+            RenderRectangleSizes ();
+            UnloadDroppedFiles (files);
+        }
+
+        if (toolbar_state.button_save_project) {
             RSP_SaveProject (&main_project);
         }
 
         if (toolbar_state.button_load_project_pressed) {
-            RSP_LoadProject ("new_project", &main_project);
-
             RenderRectangleSizes ();
         }
 
+        if (welcome_state.button_create_project) {
+            main_project.atlas.size = 1024;
+            RSP_CreateEmptyProject (welcome_state.textbox_create_project, &main_project);
+        }
+
+        if (welcome_state.load_selected_project && welcome_state.activeSelection != -1) {
+            RSP_LoadProject (welcome_state.files.paths[welcome_state.activeSelection], &main_project);
+            RenderRectangleSizes ();
+
+            welcome_state.activeSelection = -1;
+            welcome_active = false;
+        }
+
         BeginDrawing ();
-            ClearBackground (SKYBLUE);
+            ClearBackground (GetColor(GuiGetStyle (DEFAULT, BASE_COLOR_NORMAL)));
 
-            BeginMode2D (camera);
-                DrawTexturePro (texture_atlas.texture, CLITERAL(Rectangle){ 0, 0, ATLAS_SIZE, -ATLAS_SIZE }, CLITERAL(Rectangle){ 0, 0, ATLAS_SIZE, ATLAS_SIZE }, Vector2Zero (), 0.0f, WHITE);
-                DrawRectangleLinesEx (CLITERAL(Rectangle){ -1, -1, texture_atlas.texture.width + 2, texture_atlas.texture.height + 2 }, 1.0f, YELLOW);
+            if (welcome_active) {
+                WGT_GuiWelcome (&welcome_state);
+            } else {
+                BeginMode2D (camera);
+                    DrawTexturePro (main_project.atlas.texture.texture, CLITERAL(Rectangle){ 0, 0, main_project.atlas.size, -main_project.atlas.size }, CLITERAL(Rectangle){ 0, 0, main_project.atlas.size, main_project.atlas.size }, Vector2Zero (), 0.0f, WHITE);
+                    DrawRectangleLinesEx (CLITERAL(Rectangle){ -1, -1, main_project.atlas.texture.texture.width + 2, main_project.atlas.texture.texture.height + 2 }, 1.0f, YELLOW);
 
-                if (currently_selected_rectangle != NULL) {
-                    DrawRectangleLinesEx (*currently_selected_rectangle, 1.0f, GREEN);
+                    if (currently_selected_rectangle != NULL) {
+                        DrawRectangleLinesEx (*currently_selected_rectangle, 1.0f, GREEN);
 
-                    mouse_world_position = CLITERAL(Vector2) {
-                        floorf (mouse_world_position.x),
-                        floorf (mouse_world_position.y),
-                    };
+                        mouse_world_position = CLITERAL(Vector2) {
+                            roundf (mouse_world_position.x),
+                            roundf (mouse_world_position.y),
+                        };
 
-                    DrawLineV (
-                        CLITERAL(Vector2){ .x = currently_selected_rectangle->x, .y = mouse_world_position.y },
-                        CLITERAL(Vector2){ .x = currently_selected_rectangle->x + currently_selected_rectangle->width, .y = mouse_world_position.y },
-                        WHITE
-                    );
+                        DrawLineV (
+                            CLITERAL(Vector2){ .x = currently_selected_rectangle->x, .y = mouse_world_position.y },
+                            CLITERAL(Vector2){ .x = currently_selected_rectangle->x + currently_selected_rectangle->width, .y = mouse_world_position.y },
+                            WHITE
+                        );
 
-                    DrawLineV (
-                        CLITERAL(Vector2){ .x = mouse_world_position.x, .y = currently_selected_rectangle->y },
-                        CLITERAL(Vector2){ .x = mouse_world_position.x, .y = currently_selected_rectangle->y + currently_selected_rectangle->height },
-                        WHITE
-                    );
+                        DrawLineV (
+                            CLITERAL(Vector2){ .x = mouse_world_position.x, .y = currently_selected_rectangle->y },
+                            CLITERAL(Vector2){ .x = mouse_world_position.x, .y = currently_selected_rectangle->y + currently_selected_rectangle->height },
+                            WHITE
+                        );
 
-                    DrawCircleLinesV (mouse_world_position, 1, WHITE);
-                }
-            EndMode2D ();
+                        DrawCircleLinesV (mouse_world_position, 1, WHITE);
+                    }
+                EndMode2D ();
 
-            WGT_GuiToolbar (&toolbar_state);
+                WGT_GuiToolbar (&toolbar_state);
+            }
 
-            // GuiWindowFileDialog(&fileDialogState);
+            DrawFPS (8, 8);
         EndDrawing ();
     }
 
     RSP_UnloadProject (&main_project);
 
-    UnloadRenderTexture (texture_atlas);
-
     CloseWindow ();
 
     return 0;
-}
-
-uint64_t hash (const char* key) {
-    #define FNV_OFFSET 14695981039346656037UL
-    #define FNV_PRIME 1099511628211UL
-
-    uint64_t hash = FNV_OFFSET;
-
-    for (const char* p = key; *p; p++) {
-        hash ^= (uint64_t)(unsigned char)(*p);
-        hash *= FNV_PRIME;
-    }
-
-    return hash;
 }
 
 static int CompareTextureRectangles (const void* a, const void* b) {
@@ -211,22 +216,19 @@ static int CompareTextureRectangles (const void* a, const void* b) {
     return 0;
 }
 
-void LoadAndFilterAssets (void) {
-    files = LoadDirectoryFiles ("assets");
-
-    if (files.count == 0) {
-        TraceLog (LOG_ERROR, "No files found in [%s]", "assets");
+void LoadAndFilterAssets (FilePathList* files) {
+    if (files->count == 0) {
+        TraceLog (LOG_ERROR, "No files->found in [%s]", "assets");
         return;
     }
 
-    main_project.sprites = calloc (files.count, sizeof (RSP_Sprite));
+    main_project.sprites = calloc (files->count, sizeof (RSP_Sprite));
 
-    for (size_t i = 0; i < files.count; i++) {
-        Texture2D texture = LoadTexture (files.paths[i]);
+    for (size_t i = 0; i < files->count; i++) {
+        Texture2D texture = LoadTexture (files->paths[i]);
+        const char* new_filename = TextFormat ("projects/%s/textures/%s", main_project.name, GetFileName (files->paths[i]));
 
-        const char* new_filename = TextFormat ("projects/%s/textures/%s", main_project.name, GetFileName (files.paths[i]));
-
-        CopyFile (files.paths[i], new_filename);
+        CopyFile (files->paths[i], new_filename);
 
         main_project.sprites[i] = CLITERAL(RSP_Sprite) {
             .texture = texture,
@@ -235,26 +237,53 @@ void LoadAndFilterAssets (void) {
             .origin = Vector2Zero ()
         };
 
-        strncpy (main_project.sprites[i].name, GetFileNameWithoutExt (files.paths[i]), MAX_ASSET_NAME_LENGTH);
+        strncpy (main_project.sprites[i].name, GetFileNameWithoutExt (files->paths[i]), MAX_ASSET_NAME_LENGTH);
         strncpy (main_project.sprites[i].file, new_filename, MAX_ASSET_FILENAME_LENGTH);
     }
 
-    main_project.atlas.sprite_count = files.count;
+    main_project.atlas.sprite_count = files->count;
 
-    qsort (main_project.sprites, files.count, sizeof (RSP_Sprite), CompareTextureRectangles);
+    qsort (main_project.sprites, files->count, sizeof (RSP_Sprite), CompareTextureRectangles);
+}
+
+static void LoadNewAsset (const char* filename) {
+    if (!FileExists (filename)) {
+        TraceLog (LOG_ERROR, "File [%s] does not exists!", filename);
+
+        return;
+    }
+
+    Texture2D texture = LoadTexture (filename);
+    const char* new_filename = TextFormat ("projects/%s/textures/%d%s", main_project.name, main_project.atlas.size, GetFileExtension (filename));
+
+    CopyFile (filename, new_filename);
+
+    main_project.sprites = realloc (main_project.sprites, (main_project.atlas.sprite_count + 1) * sizeof (RSP_Sprite));
+
+    main_project.sprites[main_project.atlas.sprite_count] = CLITERAL(RSP_Sprite) {
+        .texture = texture,
+
+        .source = CLITERAL(Rectangle) { 0, 0, texture.width, texture.height },
+        .origin = Vector2Zero (),
+    };
+
+    strncpy (main_project.sprites[main_project.atlas.sprite_count].name, GetFileNameWithoutExt (filename), MAX_ASSET_NAME_LENGTH);
+    strncpy (main_project.sprites[main_project.atlas.sprite_count].file, new_filename, MAX_ASSET_FILENAME_LENGTH);
+
+    main_project.atlas.sprite_count++;
 }
 
 static void RenderRectangleSizes (void) {
     int textures_placed = 0;
 
-    for (size_t i = 0; i < files.count; i++) {
+    for (size_t i = 0; i < main_project.atlas.sprite_count; i++) {
         Rectangle* current_rectangle = &main_project.sprites[i].source;
 
         for (size_t j = 0; j < textures_placed; j++) {
             while (CheckCollisionRecs (*current_rectangle, main_project.sprites[j].source)) {
                 current_rectangle->x += main_project.sprites[j].source.width;
 
-                int within_x = (current_rectangle->x + current_rectangle->width) <= ATLAS_SIZE;
+                int within_x = (current_rectangle->x + current_rectangle->width) <= main_project.atlas.size;
 
                 if (!within_x) {
                     current_rectangle->x = 0;
@@ -268,7 +297,7 @@ static void RenderRectangleSizes (void) {
         textures_placed++;
     }
 
-    BeginTextureMode (texture_atlas);
+    BeginTextureMode (main_project.atlas.texture);
         ClearBackground (Fade (BLACK, 0));
 
         for (size_t i = 0; i < main_project.atlas.sprite_count; i++) {
@@ -278,7 +307,7 @@ static void RenderRectangleSizes (void) {
         }
     EndTextureMode ();
 
-    Image atlas_image = LoadImageFromTexture (texture_atlas.texture);
+    Image atlas_image = LoadImageFromTexture (main_project.atlas.texture.texture);
     ImageFlipVertical (&atlas_image);
 
     ExportImage (atlas_image, "output.png");
