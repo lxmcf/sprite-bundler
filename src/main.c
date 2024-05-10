@@ -35,6 +35,7 @@
 #define MIN(x, y) (((x) < (y)) ? (x) : (y))
 
 #define SINE(x) ((sinf ((float)x) + 1.0f) / 2.0f)
+#define TOGGLE(x) x = !x
 
 #define lengthof(x) (sizeof (x) / sizeof (x[0]))
 
@@ -89,15 +90,35 @@ typedef struct RSP_Project {
 } RSP_Project;
 
 // Widgets
+typedef struct RSP_WidgetWelcome {
+    bool active;
+    Vector2 anchor;
+
+    int width;
+    int height;
+
+    int list_projects_scroll_index;
+    int list_projects_active;
+
+    bool button_load_project_pressed;
+    bool button_delete_project_pressed;
+    bool button_new_project_pressed;
+
+    bool textbox_project_name_edit;
+    char textbox_project_name_text[32];
+
+    bool dropdown_atlas_size_edit;
+    int dropdown_atlas_size_active;
+
+    bool value_atlas_size_edit;
+    int value_atlas_size;
+} RSP_WidgetWelcome;
+
+
 typedef struct RSP_WidgetToolbar {
     bool active;
     Vector2 anchor;
 } RSP_WidgetToolbar;
-
-typedef struct RSP_WidgetWelcome {
-    bool active;
-    Vector2 anchor;
-} RSP_WidgetWelcome;
 
 // -----------------------------------------------------------------------------
 // Global data
@@ -138,7 +159,8 @@ int main (int argc, const char* argv[]) {
     }
 
     {   // :widgets
-
+        widget_welcome = RSP_InitWelcome ();
+        widget_toolbar = RSP_InitToolbar ();
     }
 
     current_application_mode = RSP_MODE_WELCOME;
@@ -163,6 +185,10 @@ int main (int argc, const char* argv[]) {
 
                 default: break;
             }
+
+            #if BUILD_DEBUG
+            DrawFPS (8, 8);
+            #endif
         EndDrawing ();
     }
 
@@ -174,17 +200,29 @@ int main (int argc, const char* argv[]) {
 RSP_WidgetWelcome RSP_InitWelcome (void) {
     RSP_WidgetWelcome state = CLITERAL(RSP_WidgetWelcome) { 0 };
 
+    state.anchor = Vector2Zero ();
+    state.active = true;
+
+    state.width = 640;
+    state.height = 328;
+
     return state;
 }
 
 RSP_WidgetToolbar RSP_InitToolbar (void) {
     RSP_WidgetToolbar state = CLITERAL(RSP_WidgetToolbar) { 0 };
 
+    state.anchor = Vector2Zero ();
+    state.active = false;
+
     return state;
 }
 
 void RSP_UpdateWelcome (void) {
-    widget_welcome.anchor = CLITERAL(Vector2){ GetScreenWidth () / 2, GetScreenHeight () / 2 };
+    widget_welcome.anchor = CLITERAL(Vector2){
+        (GetScreenWidth () / 2) - (widget_welcome.width / 2),
+        (GetScreenHeight () / 2) - (widget_welcome.height / 2)
+    };
 }
 
 void RSP_UpdateEditor (void) {
@@ -209,6 +247,55 @@ void RSP_UpdateEditor (void) {
     }
 }
 
-void RSP_RenderWelcome (void) { }
+void RSP_RenderWelcome (void) {
+    if (widget_welcome.dropdown_atlas_size_edit) GuiLock();
 
-void RSP_RenderEditor (void) { }
+    if (widget_welcome.active) {
+        const Rectangle layouts[] = { // NOTE: Yes I know this is not efficient
+            CLITERAL(Rectangle){ widget_welcome.anchor.x + 0,   widget_welcome.anchor.y + 0, widget_welcome.width, widget_welcome.height },
+            CLITERAL(Rectangle){ widget_welcome.anchor.x + 8,   widget_welcome.anchor.y + 32, 624, 128 },
+            CLITERAL(Rectangle){ widget_welcome.anchor.x + 8,   widget_welcome.anchor.y + 168, 304, 24 },
+            CLITERAL(Rectangle){ widget_welcome.anchor.x + 328, widget_welcome.anchor.y + 168, 304, 24 },
+            CLITERAL(Rectangle){ widget_welcome.anchor.x + 8,   widget_welcome.anchor.y + 208, 624, 112 },
+            CLITERAL(Rectangle){ widget_welcome.anchor.x + 472, widget_welcome.anchor.y + 288, 152, 24 },
+            CLITERAL(Rectangle){ widget_welcome.anchor.x + 152, widget_welcome.anchor.y + 224, 96, 24 },
+            CLITERAL(Rectangle){ widget_welcome.anchor.x + 16,  widget_welcome.anchor.y + 224, 128, 24 },
+            CLITERAL(Rectangle){ widget_welcome.anchor.x + 152, widget_welcome.anchor.y + 288, 96, 24 },
+            CLITERAL(Rectangle){ widget_welcome.anchor.x + 16,  widget_welcome.anchor.y + 288, 128, 24 },
+            CLITERAL(Rectangle){ widget_welcome.anchor.x + 16,  widget_welcome.anchor.y + 256, 128, 24 },
+            CLITERAL(Rectangle){ widget_welcome.anchor.x + 152, widget_welcome.anchor.y + 256, 96, 24 },
+        };
+
+        // Temp for now
+        widget_welcome.active = !GuiWindowBox (layouts[0], "#015#Projects");
+        GuiListView (layouts[1], "ONE;TWO;THREE;FOUR;FIVE", &widget_welcome.list_projects_scroll_index, &widget_welcome.list_projects_active);
+
+        widget_welcome.button_load_project_pressed = GuiButton (layouts[2], "#005#Load Selected Project");
+        widget_welcome.button_delete_project_pressed = GuiButton (layouts[3], "#143#Delete Selected Project");
+
+        GuiGroupBox (layouts[4], "New Project");
+
+        {
+            widget_welcome.button_new_project_pressed = GuiButton (layouts[5], "#008#Create & Load Project");
+
+            GuiLabel (layouts[6], "Project Name");
+            if (GuiTextBox (layouts[7], widget_welcome.textbox_project_name_text, 128, widget_welcome.textbox_project_name_edit)) TOGGLE (widget_welcome.textbox_project_name_edit);
+
+            GuiLabel(layouts[8], "Atlas Size");
+            if (GuiValueBox (layouts[10], NULL, &widget_welcome.value_atlas_size, 0, 128, widget_welcome.value_atlas_size_edit)) TOGGLE (widget_welcome.value_atlas_size_edit);
+
+            GuiLabel (layouts[11], "Alignment Value");
+            if (GuiDropdownBox (layouts[9], "512;1024;2048;4096;8192", &widget_welcome.dropdown_atlas_size_active, widget_welcome.dropdown_atlas_size_edit)) TOGGLE (widget_welcome.dropdown_atlas_size_edit);
+        }
+    }
+
+    GuiUnlock();
+}
+
+static void __RSP_Toolbar (void) {
+    GuiStatusBar (CLITERAL(Rectangle){ widget_toolbar.anchor.x, widget_toolbar.anchor.y, GetRenderWidth (), 40 }, NULL);
+}
+
+void RSP_RenderEditor (void) {
+    __RSP_Toolbar ();
+}
