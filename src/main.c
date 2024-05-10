@@ -1,327 +1,214 @@
-// TODO: Move to something more dedicated for rectangle packing
-
-#include "types.h"
-
+// -----------------------------------------------------------------------------
+// RaySprite
+//
+// A simple sprite atlas packer designed to comprss sprite and allow metadata
+// editing for easy usage in any language.
+// -----------------------------------------------------------------------------
+#define RAYGUI_IMPLEMENTATION
+#define RAYMATH_STATIC_INLINE
+#include <raylib.h>
 #include <raymath.h>
 #include <raygui.h>
 
 #include <string.h>
-#include <stdlib.h>
+#include <stdint.h>
+#include <stddef.h>
 
-#define WGT_TOOLBAR_IMPL
-#include "widgets/toolbar.h"
+// -----------------------------------------------------------------------------
+// Config
+// -----------------------------------------------------------------------------
+#define MINIMUM_WINDOW_WIDTH 1280
+#define MINIMUM_WINDOW_HEIGHT 720
 
-#define WGT_WELCOME_IMPL
-#include "widgets/welcome.h"
+#define WINDOW_TITLE "RaySprite"
+#define WINDOW_FLAGS FLAG_WINDOW_RESIZABLE
 
-#include "project/project.h"
+#define MAX_ASSET_NAME_LENGTH 32
+#define MAX_ASSET_FILE_LENGTH 64
 
-#define WINDOW_WIDTH 1200
-#define WINDOW_HEIGHT 800
-#define WINDOW_TITLE "Hello World"
+#define MAX_PROJECT_NAME_LENGTH 32
 
-#define ATLAS_ITEM_MIN_SIZE 16
+// -----------------------------------------------------------------------------
+// Macros
+// -----------------------------------------------------------------------------
+#define MAX(x, y) (((x) > (y)) ? (x) : (y))
+#define MIN(x, y) (((x) < (y)) ? (x) : (y))
 
-RSP_Project main_project;
+#define SINE(x) ((sinf ((float)x) + 1.0f) / 2.0f)
 
-static Rectangle* currently_selected_rectangle;
-static RSP_Sprite* currently_selected_sprite;
+#define lengthof(x) (sizeof (x) / sizeof (x[0]))
 
-static WGT_ToolbarState toolbar_state;
+// -----------------------------------------------------------------------------
+// Enums
+// -----------------------------------------------------------------------------
+typedef enum RSP_SpriteFlags {
+    RSP_SPRITE_ANIMATED     = 1 << 0,
+    RSP_SPRITE_ORIGIN       = 1 << 1,
+} RSP_SpriteFlags;
 
-static bool welcome_active;
-static WGT_WelcomeState welcome_state;
+typedef enum RSP_ProjectError {
+    RSP_PROJECT_ERROR_NONE,
+    RSP_PROJECT_ERROR_EXISTS,
+    RSP_PROJECT_ERROR_NOT_EXIST,
+    RSP_PROJECT_ERROR_INVALID,
+} RSP_ProjectError;
 
-static int CompareTextureRectangles (const void* a, const void* b);
-static void LoadAndFilterAssets (FilePathList* files);
-static void LoadNewAsset (const char* filename);
-static void RenderRectangleSizes (void);
+typedef enum RSP_Mode {
+    RSP_MODE_WELCOME,
+    RSP_MODE_EDITOR,
+} RSP_Mode;
 
-void CopyFile (const char* source, const char* destination);
+// -----------------------------------------------------------------------------
+// Type definitions
+// -----------------------------------------------------------------------------
+typedef struct RSP_Sprite {
+    char name[MAX_ASSET_NAME_LENGTH];
+    char file[MAX_ASSET_FILE_LENGTH];
+    uint16_t flags;
 
+    Texture2D texture;
+
+    Rectangle source;
+    Vector2 origin;
+
+    struct {
+        Rectangle* frames;
+        int16_t frames_count;
+    } animation;
+} RSP_Sprite;
+
+typedef struct RSP_Project {
+    uint8_t version;
+    char name[MAX_PROJECT_NAME_LENGTH];
+
+    RSP_Sprite* sprites;
+    uint16_t sprites_count;
+
+    RenderTexture2D atlas;
+    FilePathList assets;
+} RSP_Project;
+
+// Widgets
+typedef struct RSP_WidgetToolbar {
+    bool active;
+    Vector2 anchor;
+} RSP_WidgetToolbar;
+
+typedef struct RSP_WidgetWelcome {
+    bool active;
+    Vector2 anchor;
+} RSP_WidgetWelcome;
+
+// -----------------------------------------------------------------------------
+// Global data
+// -----------------------------------------------------------------------------
+static RSP_WidgetWelcome widget_welcome;
+static RSP_WidgetToolbar widget_toolbar;
+
+static RSP_Mode current_application_mode;
+
+static Camera2D camera;
+
+// -----------------------------------------------------------------------------
+// Function decleration
+// -----------------------------------------------------------------------------
+static RSP_WidgetWelcome RSP_InitWelcome (void);
+static RSP_WidgetToolbar RSP_InitToolbar (void);
+
+static void RSP_UpdateWelcome (void);
+static void RSP_UpdateEditor (void);
+
+static void RSP_RenderWelcome (void);
+static void RSP_RenderEditor (void);
+
+// -----------------------------------------------------------------------------
+// Core Application
+// -----------------------------------------------------------------------------
 int main (int argc, const char* argv[]) {
-    InitWindow (WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_TITLE);
+    InitWindow (MINIMUM_WINDOW_WIDTH, MINIMUM_WINDOW_HEIGHT, WINDOW_TITLE);
 
-    SetWindowState (FLAG_WINDOW_RESIZABLE);
-    SetWindowMinSize (WINDOW_WIDTH, WINDOW_HEIGHT);
-
-    toolbar_state = WGT_InitToolbarState ();
-
-    welcome_active = true;
-    welcome_state = WGT_InitWelcomeState ();
-
-    {   // Set framerate to max supported
-        #define DEFAULT_TARGET_FPS 60
-        int current_monitor = GetCurrentMonitor ();
-        int fps = GetMonitorRefreshRate (current_monitor);
-
-        // Fallback to 60 FPS target if error occurs
-        if (fps <= 0) fps = DEFAULT_TARGET_FPS;
-
-        SetTargetFPS (fps);
+    {   // :window settings
+        SetWindowMinSize (MINIMUM_WINDOW_WIDTH, MINIMUM_WINDOW_HEIGHT);
+        SetWindowState (WINDOW_FLAGS);
     }
 
-    Camera2D camera = { 0 };
-    camera.zoom = 1.0f;
-    camera.offset = CLITERAL(Vector2){ GetScreenWidth () / 2, GetScreenHeight () / 2 };
-    camera.target = CLITERAL(Vector2){ 0, 0 };
+    {   // :framerate
+        int fps = GetMonitorRefreshRate (GetCurrentMonitor ());
+        SetTargetFPS (fps <= 0 ? fps : 60);
+    }
+
+    {   // :widgets
+
+    }
+
+    current_application_mode = RSP_MODE_WELCOME;
+
+    camera = CLITERAL(Camera2D){ 0 };
+    camera.offset = CLITERAL(Vector2) { GetScreenWidth () / 2, GetScreenHeight () / 2 };
 
     while (!WindowShouldClose ()) {
-        // -----------------------------------------------------------------------------
-        // Camera movement and zoom
-        // -----------------------------------------------------------------------------
-        if (IsMouseButtonDown (MOUSE_BUTTON_MIDDLE) || IsKeyDown (KEY_LEFT_ALT)) {
-            Vector2 delta = GetMouseDelta ();
+        switch (current_application_mode) {
+            case RSP_MODE_WELCOME:  RSP_UpdateWelcome (); break;
+            case RSP_MODE_EDITOR:   RSP_UpdateEditor (); break;
 
-            delta = Vector2Scale (delta, -1.0f / camera.zoom);
-            camera.target = Vector2Add (camera.target, delta);
-        }
-
-        float wheel = GetMouseWheelMove ();
-        if (wheel != 0) {
-            Vector2 mouse_world_position = GetScreenToWorld2D (GetMousePosition (), camera);
-
-            camera.offset = GetMousePosition();
-            camera.target = mouse_world_position;
-
-            const float zoom_amount = 0.125f;
-
-            camera.zoom += (wheel * zoom_amount);
-            if (camera.zoom < zoom_amount) camera.zoom = zoom_amount;
-        }
-
-        // -----------------------------------------------------------------------------
-        // Rectangle Collision
-        // -----------------------------------------------------------------------------
-        Vector2 mouse_world_position = GetScreenToWorld2D (GetMousePosition (), camera);
-
-        for (size_t i = 0; i < main_project.atlas.sprite_count; i++) {
-            currently_selected_rectangle = NULL;
-            currently_selected_sprite = NULL;
-
-            RSP_Sprite* current_sprite = &main_project.sprites[i];
-
-            if (CheckCollisionPointRec (mouse_world_position, current_sprite->source)) {
-                currently_selected_rectangle = &current_sprite->source;
-                break;
-            }
-        }
-
-        if (IsFileDropped () ) {
-            FilePathList files = LoadDroppedFiles ();
-
-            for (size_t i = 0; i < files.count; i++) {
-                LoadNewAsset (files.paths[i]);
-            }
-
-            qsort (main_project.sprites, main_project.atlas.sprite_count, sizeof (RSP_Sprite), CompareTextureRectangles);
-
-            RenderRectangleSizes ();
-            UnloadDroppedFiles (files);
-        }
-
-        if (toolbar_state.button_save_project) {
-            RSP_SaveProject (&main_project);
-        }
-
-        if (toolbar_state.button_load_project_pressed) {
-            RenderRectangleSizes ();
-        }
-
-        if (welcome_state.button_create_project) {
-            main_project.atlas.size = 1024;
-            RSP_CreateEmptyProject (welcome_state.textbox_create_project, &main_project);
-        }
-
-        if (welcome_state.load_selected_project && welcome_state.activeSelection != -1) {
-            RSP_LoadProject (welcome_state.files.paths[welcome_state.activeSelection], &main_project);
-            RenderRectangleSizes ();
-
-            welcome_state.activeSelection = -1;
-            welcome_active = false;
+            default: break;
         }
 
         BeginDrawing ();
-            ClearBackground (GetColor(GuiGetStyle (DEFAULT, BASE_COLOR_NORMAL)));
+            ClearBackground (GetColor (GuiGetStyle (DEFAULT, BACKGROUND_COLOR)));
 
-            if (welcome_active) {
-                WGT_GuiWelcome (&welcome_state);
-            } else {
-                BeginMode2D (camera);
-                    DrawTexturePro (main_project.atlas.texture.texture, CLITERAL(Rectangle){ 0, 0, main_project.atlas.size, -main_project.atlas.size }, CLITERAL(Rectangle){ 0, 0, main_project.atlas.size, main_project.atlas.size }, Vector2Zero (), 0.0f, WHITE);
-                    DrawRectangleLinesEx (CLITERAL(Rectangle){ -1, -1, main_project.atlas.texture.texture.width + 2, main_project.atlas.texture.texture.height + 2 }, 1.0f, YELLOW);
+            switch (current_application_mode) {
+                case RSP_MODE_WELCOME:  RSP_RenderWelcome (); break;
+                case RSP_MODE_EDITOR:   RSP_RenderEditor (); break;
 
-                    if (currently_selected_rectangle != NULL) {
-                        DrawRectangleLinesEx (*currently_selected_rectangle, 1.0f, GREEN);
-
-                        mouse_world_position = CLITERAL(Vector2) {
-                            roundf (mouse_world_position.x),
-                            roundf (mouse_world_position.y),
-                        };
-
-                        DrawLineV (
-                            CLITERAL(Vector2){ .x = currently_selected_rectangle->x, .y = mouse_world_position.y },
-                            CLITERAL(Vector2){ .x = currently_selected_rectangle->x + currently_selected_rectangle->width, .y = mouse_world_position.y },
-                            WHITE
-                        );
-
-                        DrawLineV (
-                            CLITERAL(Vector2){ .x = mouse_world_position.x, .y = currently_selected_rectangle->y },
-                            CLITERAL(Vector2){ .x = mouse_world_position.x, .y = currently_selected_rectangle->y + currently_selected_rectangle->height },
-                            WHITE
-                        );
-
-                        DrawCircleLinesV (mouse_world_position, 1, WHITE);
-                    }
-                EndMode2D ();
-
-                WGT_GuiToolbar (&toolbar_state);
+                default: break;
             }
-
-            DrawFPS (8, 8);
         EndDrawing ();
     }
-
-    RSP_UnloadProject (&main_project);
 
     CloseWindow ();
 
     return 0;
 }
 
-static int CompareTextureRectangles (const void* a, const void* b) {
-    RSP_Sprite* sprite_a = (RSP_Sprite*)a;
-    RSP_Sprite* sprite_b = (RSP_Sprite*)b;
+RSP_WidgetWelcome RSP_InitWelcome (void) {
+    RSP_WidgetWelcome state = CLITERAL(RSP_WidgetWelcome) { 0 };
 
-    int mass_a = (int)(sprite_a->source.width * sprite_a->source.height);
-    int mass_b = (int)(sprite_b->source.width * sprite_b->source.height);
-
-    if (mass_a == mass_b) {
-        if ((int)sprite_a->source.width == (int)sprite_b->source.width) {
-            if (sprite_a->source.height > sprite_b->source.height) return -1;
-            if (sprite_b->source.height > sprite_a->source.height) return 1;
-
-            return 0;
-        } else {
-            if (sprite_a->source.width > sprite_b->source.width) return -1;
-            if (sprite_b->source.width > sprite_a->source.width) return 1;
-
-            return 0;
-        }
-    } else {
-        if (mass_a > mass_b) return -1;
-        if (mass_b > mass_a) return 1;
-    }
-
-    return 0;
+    return state;
 }
 
-void LoadAndFilterAssets (FilePathList* files) {
-    if (files->count == 0) {
-        TraceLog (LOG_ERROR, "No files->found in [%s]", "assets");
-        return;
-    }
+RSP_WidgetToolbar RSP_InitToolbar (void) {
+    RSP_WidgetToolbar state = CLITERAL(RSP_WidgetToolbar) { 0 };
 
-    main_project.sprites = calloc (files->count, sizeof (RSP_Sprite));
-
-    for (size_t i = 0; i < files->count; i++) {
-        Texture2D texture = LoadTexture (files->paths[i]);
-        const char* new_filename = TextFormat ("projects/%s/textures/%s", main_project.name, GetFileName (files->paths[i]));
-
-        CopyFile (files->paths[i], new_filename);
-
-        main_project.sprites[i] = CLITERAL(RSP_Sprite) {
-            .texture = texture,
-
-            .source = CLITERAL(Rectangle) { 0, 0, texture.width, texture.height },
-            .origin = Vector2Zero ()
-        };
-
-        strncpy (main_project.sprites[i].name, GetFileNameWithoutExt (files->paths[i]), MAX_ASSET_NAME_LENGTH);
-        strncpy (main_project.sprites[i].file, new_filename, MAX_ASSET_FILENAME_LENGTH);
-    }
-
-    main_project.atlas.sprite_count = files->count;
-
-    qsort (main_project.sprites, files->count, sizeof (RSP_Sprite), CompareTextureRectangles);
+    return state;
 }
 
-static void LoadNewAsset (const char* filename) {
-    if (!FileExists (filename)) {
-        TraceLog (LOG_ERROR, "File [%s] does not exists!", filename);
+void RSP_UpdateWelcome (void) {
+    widget_welcome.anchor = CLITERAL(Vector2){ GetScreenWidth () / 2, GetScreenHeight () / 2 };
+}
 
-        return;
+void RSP_UpdateEditor (void) {
+    if (IsMouseButtonDown (MOUSE_BUTTON_MIDDLE) || IsKeyDown (KEY_LEFT_ALT)) {
+        Vector2 delta = GetMouseDelta ();
+
+        delta = Vector2Scale (delta, -1.0f / camera.zoom);
+        camera.target = Vector2Add (camera.target, delta);
     }
 
-    Texture2D texture = LoadTexture (filename);
-    const char* new_filename = TextFormat ("projects/%s/textures/%d%s", main_project.name, main_project.atlas.size, GetFileExtension (filename));
+    float wheel = GetMouseWheelMove ();
+    if (wheel != 0) {
+        Vector2 mouse_world_position = GetScreenToWorld2D (GetMousePosition (), camera);
 
-    CopyFile (filename, new_filename);
+        camera.offset = GetMousePosition();
+        camera.target = mouse_world_position;
 
-    main_project.sprites = realloc (main_project.sprites, (main_project.atlas.sprite_count + 1) * sizeof (RSP_Sprite));
+        const float zoom_amount = 0.125f;
 
-    main_project.sprites[main_project.atlas.sprite_count] = CLITERAL(RSP_Sprite) {
-        .texture = texture,
-
-        .source = CLITERAL(Rectangle) { 0, 0, texture.width, texture.height },
-        .origin = Vector2Zero (),
-    };
-
-    strncpy (main_project.sprites[main_project.atlas.sprite_count].name, GetFileNameWithoutExt (filename), MAX_ASSET_NAME_LENGTH);
-    strncpy (main_project.sprites[main_project.atlas.sprite_count].file, new_filename, MAX_ASSET_FILENAME_LENGTH);
-
-    main_project.atlas.sprite_count++;
-}
-
-static void RenderRectangleSizes (void) {
-    int textures_placed = 0;
-
-    for (size_t i = 0; i < main_project.atlas.sprite_count; i++) {
-        Rectangle* current_rectangle = &main_project.sprites[i].source;
-
-        for (size_t j = 0; j < textures_placed; j++) {
-            while (CheckCollisionRecs (*current_rectangle, main_project.sprites[j].source)) {
-                current_rectangle->x += main_project.sprites[j].source.width;
-
-                int within_x = (current_rectangle->x + current_rectangle->width) <= main_project.atlas.size;
-
-                if (!within_x) {
-                    current_rectangle->x = 0;
-                    current_rectangle->y += ATLAS_ITEM_MIN_SIZE;
-
-                    j = 0;
-                }
-            }
-        }
-
-        textures_placed++;
+        camera.zoom += (wheel * zoom_amount);
+        if (camera.zoom < zoom_amount) camera.zoom = zoom_amount;
     }
-
-    BeginTextureMode (main_project.atlas.texture);
-        ClearBackground (Fade (BLACK, 0));
-
-        for (size_t i = 0; i < main_project.atlas.sprite_count; i++) {
-            RSP_Sprite* current_sprite = &main_project.sprites[i];
-
-            DrawTextureV (current_sprite->texture, CLITERAL(Vector2){ current_sprite->source.x, current_sprite->source.y }, WHITE);
-        }
-    EndTextureMode ();
-
-    Image atlas_image = LoadImageFromTexture (main_project.atlas.texture.texture);
-    ImageFlipVertical (&atlas_image);
-
-    ExportImage (atlas_image, "output.png");
-
-    UnloadImage (atlas_image);
 }
 
-void CopyFile (const char* source, const char* destination) {
-    unsigned char* source_file;
-    int file_length;
+void RSP_RenderWelcome (void) { }
 
-    source_file = LoadFileData (source, &file_length);
-
-    SaveFileData (destination, source_file, file_length);
-
-    MemFree (source_file);
-}
+void RSP_RenderEditor (void) { }
