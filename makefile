@@ -12,7 +12,7 @@ PLATFORM ?= PLATFORM_DESKTOP
 
 PLATFORM_OS := Linux
 RUNNER :=
-CC ?= gcc
+CC ?= clang
 
 SRC_FILES := $(wildcard src/*.c) $(wildcard src/*/*.c)
 INCLUDES :=
@@ -62,7 +62,7 @@ endif
 # ----------------------------------------------------------------------------------
 ifeq ($(PLATFORM), PLATFORM_DESKTOP)
 	DEFINES += -DPLATFORM_DESKTOP
-	CC = gcc
+	CC = clang
 
 	ifeq ($(PLATFORM_OS), WINDOWS)
 		DEFINES += -DPLATFORM_WINDOWS
