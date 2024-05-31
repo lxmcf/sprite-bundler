@@ -30,6 +30,8 @@
 
 #define MAX_PROJECT_NAME_LENGTH 32
 
+#define ACCEPTED_IMAGE_FORMAT ".png;.bmp;.tga;.jpg;.jpeg;.gif;.qoi;.psd;.dds;.hdr;.ktx;.astc;.pkm;.pvr"
+
 #define DEFAULT_PROJECT_DIRECTORY "projects"
 #define DEFAULT_PROJECT_EXTENSION ".rspp"
 #define DEFAULT_PROJECT_VERSION 1
@@ -136,6 +138,7 @@ typedef struct RSP_WidgetToolbar {
     Vector2 anchor;
 
     bool button_save_project_pressed;
+    bool button_export_png_pressed;
 } RSP_WidgetToolbar;
 
 // -----------------------------------------------------------------------------
@@ -226,6 +229,8 @@ int main (int argc, const char* argv[]) {
     WELCOME_STATE.files = LoadDirectoryFilesEx (DEFAULT_PROJECT_DIRECTORY, DEFAULT_PROJECT_EXTENSION, true);
 
     while (!WindowShouldClose () && widget_welcome.active) {
+        if (should_show_alert) GuiLock ();
+
         switch (current_application_mode) {
             case RSP_MODE_WELCOME:  RSP_UpdateWelcome (); break;
             case RSP_MODE_EDITOR:   RSP_UpdateEditor (); break;
@@ -235,9 +240,6 @@ int main (int argc, const char* argv[]) {
 
         BeginDrawing ();
             ClearBackground (GetColor (GuiGetStyle (DEFAULT, BACKGROUND_COLOR)));
-
-            if (should_show_alert) GuiLock ();
-
             switch (current_application_mode) {
                 case RSP_MODE_WELCOME:  RSP_RenderWelcome (); break;
                 case RSP_MODE_EDITOR:   RSP_RenderEditor (); break;
@@ -246,6 +248,7 @@ int main (int argc, const char* argv[]) {
             }
 
             if (should_show_alert) {
+                GuiUnlock ();
                 DrawRectangle (0, 0, GetScreenWidth (), GetScreenHeight (), GuiFade (GetColor (GuiGetStyle (DEFAULT, BACKGROUND_COLOR)), 0.75f));
 
                 Rectangle window_bounds = CLITERAL(Rectangle){ (GetScreenWidth () / 2) - 180, (GetScreenHeight ()) / 2 - 90, 360, 180 };
@@ -254,7 +257,6 @@ int main (int argc, const char* argv[]) {
                 Rectangle text_bounds = CLITERAL(Rectangle){ (GetScreenWidth () / 2) - (180 - 8), (GetScreenHeight ()) / 2 - (90 - 32), 360 - 16, 180 - 40 };
                 GuiDrawText (alert_text, text_bounds, TEXT_ALIGN_CENTER, GetColor (GuiGetStyle (DEFAULT, TEXT_COLOR_NORMAL)));
 
-                GuiUnlock ();
             }
 
             #if BUILD_DEBUG
@@ -312,6 +314,8 @@ void RSP_UpdateWelcome (void) {
 
     if (widget_welcome.button_new_project_pressed) {
         result = RSP_CreateAndLoadProject (widget_welcome.textbox_project_name_text);
+
+        TraceLog (LOG_INFO, "%d", result);
     }
 
     if (widget_welcome.button_load_project_pressed) {
@@ -361,6 +365,8 @@ void RSP_UpdateWelcome (void) {
 void RSP_UpdateEditor (void) {
     EDITOR_STATE.mouse = GetScreenToWorld2D (GetMousePosition (), camera);
 
+    if (GuiIsLocked ()) return;
+
     if (IsMouseButtonDown (MOUSE_BUTTON_MIDDLE) || IsKeyDown (KEY_LEFT_ALT)) {
         Vector2 delta = GetMouseDelta ();
 
@@ -391,6 +397,21 @@ void RSP_UpdateEditor (void) {
 
     if (widget_toolbar.button_save_project_pressed) {
         RSP_SaveProject ();
+    }
+
+    if (widget_toolbar.button_export_png_pressed) {
+        const char* filename = TextFormat ("%s/%s/%s", DEFAULT_PROJECT_DIRECTORY, current_project.name, "atlas.png");
+
+        if (FileExists (filename)) remove (filename);
+
+        Image atlas = LoadImageFromTexture (current_project.atlas.texture);
+        ImageFlipVertical (&atlas);
+
+        ExportImage (atlas, filename);
+
+        UnloadImage (atlas);
+
+        ShowAlert ("Atlas exported!");
     }
 
     EDITOR_STATE.current_hovered_sprite = NULL;
@@ -463,8 +484,8 @@ static void __RSP_Toolbar (void) {
     GuiSetTooltip ("Save Project");
     widget_toolbar.button_save_project_pressed = GuiButton (CLITERAL(Rectangle){ 8, 8, 32, 32 }, "#2#");
 
-    GuiSetTooltip ("Lorem Ipsum");
-    GuiButton (CLITERAL(Rectangle){ 48, 8, 32, 32 }, "##");
+    GuiSetTooltip ("Export Atlas as PNG");
+    widget_toolbar.button_export_png_pressed =  GuiButton (CLITERAL(Rectangle){ 48, 8, 32, 32 }, "#195#");
 
     GuiDisableTooltip ();
 }
@@ -520,9 +541,11 @@ RSP_ProjectError RSP_CreateAndLoadProject (const char* project_name) {
         current_project.atlas_size = atlas_sizes[widget_welcome.dropdown_atlas_size_active];
     }
 
-    RSP_SaveProject ();
+    RSP_ProjectError save_status = RSP_SaveProject ();
 
-    return RSP_LoadProject (project_file);
+    RSP_ProjectError load_stats = RSP_LoadProject (TextFormat ("%s/project%s", project_directory, DEFAULT_PROJECT_EXTENSION));
+
+    return load_stats;
 }
 
 RSP_ProjectError RSP_LoadProject (const char* project_file) {
@@ -699,7 +722,7 @@ void LoadSprites (FilePathList files) {
     for (size_t i = 0; i < files.count; i++) {
         const char* extension = GetFileExtension (files.paths[i]);
 
-        if (TextIsEqual (".png", TextToLower (extension))) {
+        if (TextFindIndex (TextToLower (extension), ACCEPTED_IMAGE_FORMAT) != -1) {
             filtered_files[i] = files.paths[i];
             filtered_file_count++;
         }
