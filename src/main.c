@@ -316,8 +316,6 @@ void RSP_UpdateWelcome (void) {
 
     if (widget_welcome.button_new_project_pressed) {
         result = RSP_CreateAndLoadProject (widget_welcome.textbox_project_name_text);
-
-        TraceLog (LOG_INFO, "%d", result);
     }
 
     if (widget_welcome.button_load_project_pressed) {
@@ -525,8 +523,13 @@ void RSP_RenderEditor (void) {
 RSP_ProjectError RSP_CreateAndLoadProject (const char* project_name) {
     if (!DirectoryExists (DEFAULT_PROJECT_DIRECTORY)) MakeDirectory (DEFAULT_PROJECT_DIRECTORY);
 
-    const char* project_directory = TextFormat ("%s/%s", DEFAULT_PROJECT_DIRECTORY, project_name);
-    const char* project_file = TextFormat ("%s/project%s", project_directory, DEFAULT_PROJECT_EXTENSION);
+    const char* directory = TextFormat ("%s/%s", DEFAULT_PROJECT_DIRECTORY, project_name);
+    char* project_directory = MemAlloc (TextLength (directory));
+    TextCopy (project_directory, directory);
+
+    const char* file = TextFormat ("%s/project%s", project_directory, DEFAULT_PROJECT_EXTENSION);
+    char* project_file = MemAlloc (TextLength (file));
+    TextCopy (project_file, file);
 
     if (FileExists (project_file)) return RSP_PROJECT_ERROR_EXISTS;
 
@@ -545,9 +548,11 @@ RSP_ProjectError RSP_CreateAndLoadProject (const char* project_name) {
 
     RSP_ProjectError save_status = RSP_SaveProject ();
 
-    RSP_ProjectError load_stats = RSP_LoadProject (TextFormat ("%s/project%s", project_directory, DEFAULT_PROJECT_EXTENSION));
-
     RSP_ProjectError error = RSP_LoadProject (project_file);
+    printf ("%s\n", project_file);
+
+    MemFree (project_directory);
+    MemFree (project_file);
 
     return error;
 }
@@ -606,8 +611,13 @@ RSP_ProjectError RSP_LoadProject (const char* project_file) {
 }
 
 RSP_ProjectError RSP_SaveProject (void) {
-    const char* project_directory = TextFormat ("%s/%s", DEFAULT_PROJECT_DIRECTORY, current_project.name);
-    const char* project_file = TextFormat ("%s/project%s", project_directory, DEFAULT_PROJECT_EXTENSION);
+    const char* directory = TextFormat ("%s/%s", DEFAULT_PROJECT_DIRECTORY, current_project.name);
+    char* project_directory = MemAlloc (TextLength (directory));
+    TextCopy (project_directory, directory);
+
+    const char* file = TextFormat ("%s/project%s", project_directory, DEFAULT_PROJECT_EXTENSION);
+    char* project_file = MemAlloc (TextLength (file));
+    TextCopy (project_file, file);
 
     const char* backup_file = TextFormat ("%s.bkp", project_file);
     if (FileExists (backup_file)) remove (backup_file);
@@ -663,6 +673,9 @@ RSP_ProjectError RSP_SaveProject (void) {
 
         if (status == JSONError) return RSP_PROJECT_ERROR_FAILED_WRITE;
     }
+
+    MemFree (project_directory);
+    MemFree (project_file);
 
     return RSP_PROJECT_ERROR_NONE;
 }
