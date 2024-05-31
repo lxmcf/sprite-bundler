@@ -99,6 +99,8 @@ typedef struct RSP_Project {
     uint8_t alignment;
     char name[MAX_PROJECT_NAME_LENGTH];
 
+    bool should_embed_files;
+
     RSP_Sprite* sprites;
     uint16_t sprites_count;
 
@@ -545,7 +547,9 @@ RSP_ProjectError RSP_CreateAndLoadProject (const char* project_name) {
 
     RSP_ProjectError load_stats = RSP_LoadProject (TextFormat ("%s/project%s", project_directory, DEFAULT_PROJECT_EXTENSION));
 
-    return load_stats;
+    RSP_ProjectError error = RSP_LoadProject (project_file);
+
+    return error;
 }
 
 RSP_ProjectError RSP_LoadProject (const char* project_file) {
@@ -622,6 +626,8 @@ RSP_ProjectError RSP_SaveProject (void) {
         json_object_set_number (root_object, "version", current_project.version);
         json_object_set_number (root_object, "atlas_size", current_project.atlas_size);
         json_object_set_number (root_object, "alignment", current_project.alignment);
+
+        json_object_set_boolean (root_object, "embed_files", current_project.should_embed_files);
 
         JSON_Value* sprites_value = json_value_init_array ();
         JSON_Array* sprites_array = json_value_get_array (sprites_value);
