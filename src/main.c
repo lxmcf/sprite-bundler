@@ -11,10 +11,9 @@
 #include <raygui.h>
 
 #include <sys/stat.h>
-#include <parson.h>
-#include <string.h>
 #include <stdint.h>
-#include <stddef.h>
+
+#include "vendor/parson.h"
 
 // -----------------------------------------------------------------------------
 // Config
@@ -39,10 +38,6 @@
 // -----------------------------------------------------------------------------
 // Macros
 // -----------------------------------------------------------------------------
-#define MAX(x, y) (((x) > (y)) ? (x) : (y))
-#define MIN(x, y) (((x) < (y)) ? (x) : (y))
-
-#define SINE(x) ((sinf ((float)x) + 1.0f) / 2.0f)
 #define TOGGLE(x) x = !x
 
 #define lengthof(x) (sizeof (x) / sizeof (x[0]))
@@ -81,7 +76,7 @@ typedef enum RSP_Mode {
 typedef struct RSP_Sprite {
     char name[MAX_ASSET_NAME_LENGTH];
     char file[MAX_ASSET_FILE_LENGTH];
-    uint16_t flags; // Not used
+    uint16_t flags;
 
     Texture2D texture;
 
@@ -134,7 +129,6 @@ typedef struct RSP_WidgetWelcome {
     int value_atlas_align;
 } RSP_WidgetWelcome;
 
-
 typedef struct RSP_WidgetToolbar {
     bool active;
     Vector2 anchor;
@@ -172,11 +166,6 @@ struct {
 
     Vector2 mouse;
 } EDITOR_STATE;
-
-// -----------------------------------------------------------------------------
-// Export Data
-// -----------------------------------------------------------------------------
-
 
 // -----------------------------------------------------------------------------
 // Function decleration
@@ -926,6 +915,23 @@ void RSP_ExportBundle (void) {
     MemFree (image_data_compressed);
 
     fclose (output);
+
+    const char* header = TextFormat ("%s/%s/bundle%s", DEFAULT_PROJECT_DIRECTORY, current_project.name, ".h");
+
+    FILE* header_output = fopen (header, "w");
+
+    fprintf (header_output, "#ifndef RSP_SPRITE_NAMES\n");
+    fprintf (header_output, "#define RSP_SPRITE_NAMES\n");
+    fprintf (header_output, "\ntypedef enum RSP_SpriteName {\n");
+
+    for (size_t i = 0; i < current_project.sprites_count; i++) {
+        fprintf (header_output, "\tSPRITE_%s = %zu,\n", TextToUpper (current_project.sprites[i].name), i);
+    }
+
+    fprintf (header_output, "} RSP_SpriteName\n");
+    fprintf (header_output, "\n#endif // RSP_SPRITE_NAMES\n");
+
+    fclose (header_output);
 }
 
 void RSP_LoadBundle (void) {
@@ -947,12 +953,6 @@ void RSP_LoadBundle (void) {
     fread (atlas_data_compressed, sizeof (unsigned char), atlas_data_compressed_size, import);
     atlas_data_raw = DecompressData (atlas_data_compressed, atlas_data_compressed_size, &atlas_data_raw_size);
 
-    Image atlas = LoadImageFromMemory (".png", atlas_data_raw, atlas_data_raw_size);
-
-    ExportImage (atlas, "output.png");
-
-    UnloadImage (atlas);
-
     // Load atlas here
 
     MemFree (atlas_data_compressed);
@@ -963,8 +963,6 @@ void RSP_LoadBundle (void) {
 
     for (size_t i = 0; i < sprite_count; i++) {
         fread (header, sizeof (char), 4, import);
-
-        // if (TextIsEqual (header, "SPR")) TraceLog (LOG_INFO, "FOUND SPR!");
 
         RSP_Sprite* sprite = &sprites[i];
 
