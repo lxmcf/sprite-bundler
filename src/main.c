@@ -30,11 +30,11 @@
 
 #define MAX_PROJECT_NAME_LENGTH 32
 
-#define ACCEPTED_IMAGE_FORMAT ".png;.bmp;.tga;.jpg;.jpeg;.gif;.qoi;.psd;.dds;.hdr;.ktx;.astc;.pkm;.pvr"
-
 #define DEFAULT_PROJECT_DIRECTORY "projects"
 #define DEFAULT_PROJECT_EXTENSION ".rspp"
 #define DEFAULT_PROJECT_VERSION 1
+
+#define DEFAULT_BUNDLE_EXTENSION ".rspx"
 
 // -----------------------------------------------------------------------------
 // Macros
@@ -90,7 +90,7 @@ typedef struct RSP_Sprite {
 
     struct {
         Rectangle* frames;
-        int16_t frames_count;
+        uint16_t frames_count;
     } animation; // Not used
 } RSP_Sprite;
 
@@ -141,6 +141,7 @@ typedef struct RSP_WidgetToolbar {
 
     bool button_save_project_pressed;
     bool button_export_png_pressed;
+    bool button_export_bundle_pressed;
 } RSP_WidgetToolbar;
 
 // -----------------------------------------------------------------------------
@@ -173,6 +174,11 @@ struct {
 } EDITOR_STATE;
 
 // -----------------------------------------------------------------------------
+// Export Data
+// -----------------------------------------------------------------------------
+
+
+// -----------------------------------------------------------------------------
 // Function decleration
 // -----------------------------------------------------------------------------
 static RSP_WidgetWelcome RSP_InitWelcome (void);
@@ -197,6 +203,10 @@ static int CompareTextureSizes (const void* a, const void* b);
 static void LoadSprites (FilePathList files);
 static void SortSprites (void);
 static void RenderAtlas (void);
+
+// Bundles
+static void RSP_ExportBundle (void);
+static void RSP_LoadBundle (void);
 
 // Utility
 void CopyFile (const char* source, const char* destination);
@@ -414,6 +424,14 @@ void RSP_UpdateEditor (void) {
         ShowAlert ("Atlas exported!");
     }
 
+    if (IsKeyPressed (KEY_ENTER)) {
+        RSP_LoadBundle ();
+    }
+
+    if (widget_toolbar.button_export_bundle_pressed) {
+        RSP_ExportBundle ();
+    }
+
     EDITOR_STATE.current_hovered_sprite = NULL;
 
     for (size_t i = 0; i < current_project.sprites_count; i++) {
@@ -486,6 +504,9 @@ static void __RSP_Toolbar (void) {
 
     GuiSetTooltip ("Export Atlas as PNG");
     widget_toolbar.button_export_png_pressed =  GuiButton (CLITERAL(Rectangle){ 48, 8, 32, 32 }, "#195#");
+
+    GuiSetTooltip ("Export Bundle");
+    widget_toolbar.button_export_bundle_pressed = GuiButton (CLITERAL(Rectangle){ 88, 8, 32, 32 }, "#200#");
 
     GuiDisableTooltip ();
 }
@@ -586,6 +607,8 @@ RSP_ProjectError RSP_LoadProject (const char* project_file) {
         strncpy (sprite->name, json_object_get_string (sprite_object, "name"), MAX_ASSET_NAME_LENGTH);
         strncpy (sprite->file, json_object_get_string (sprite_object, "file"), MAX_ASSET_FILE_LENGTH);
 
+        sprite->flags = (uint16_t)json_object_get_number (sprite_object, "flags");
+
         sprite->source = CLITERAL(Rectangle){
             (float)json_object_dotget_number (sprite_object, "source.x"),
             (float)json_object_dotget_number (sprite_object, "source.y"),
@@ -651,6 +674,7 @@ RSP_ProjectError RSP_SaveProject (void) {
             // Generic data
             json_object_set_string (sprite_object, "name", sprite->name);
             json_object_set_string (sprite_object, "file", sprite->file);
+            json_object_set_number (sprite_object, "flags", (double)sprite->flags);
 
             // Sprite source
             json_object_dotset_number (sprite_object, "source.x", sprite->source.x);
@@ -729,6 +753,16 @@ static int CompareTextureSizes (const void* a, const void* b) {
     return 0;
 }
 
+static bool __is_image (const char* filename) {
+    const char* accepted_formats[] = { ".png", ".bmp", ".tga", ".jpg", ".jpeg", ".gif", ".qoi", ".psd;", ".dds", ".hdr", ".ktx", ".astc" ".pkm", ".pvr" };
+
+    for (size_t i = 0; i < lengthof (accepted_formats); i++) {
+        if (TextIsEqual (filename, accepted_formats[i])) return true;
+    }
+
+    return false;
+}
+
 void LoadSprites (FilePathList files) {
     if (files.count <= 0) {
         ShowAlert ("No files to load!");
@@ -741,9 +775,11 @@ void LoadSprites (FilePathList files) {
     for (size_t i = 0; i < files.count; i++) {
         const char* extension = GetFileExtension (files.paths[i]);
 
-        if (TextFindIndex (TextToLower (extension), ACCEPTED_IMAGE_FORMAT) != -1) {
-            filtered_files[i] = files.paths[i];
+        if (__is_image (extension)) {
+            filtered_files[filtered_file_count] = files.paths[i];
             filtered_file_count++;
+        } else {
+            TraceLog (LOG_INFO, "EXTENSION: %s", TextToLower (extension));
         }
     }
 
@@ -760,10 +796,17 @@ void LoadSprites (FilePathList files) {
         strncpy (sprite->file, new_filename, MAX_ASSET_FILE_LENGTH);
 
         sprite->texture = LoadTexture (filtered_files[i]);
+        if (sprite->texture.width > current_project.atlas_size || sprite->texture.height > current_project.atlas_size) {
+            ShowAlert (TextFormat ("Texture [%s] too large! Aborting!", sprite->name));
+
+            UnloadTexture (sprite->texture);
+            remove (new_filename);
+
+            break;
+        }
 
         sprite->source = CLITERAL(Rectangle){ 0, 0, sprite->texture.width, sprite->texture.height };
         sprite->origin = CLITERAL(Vector2){ 0 };
-
 
         current_project.sprites_count++;
     }
@@ -771,6 +814,7 @@ void LoadSprites (FilePathList files) {
 
 void SortSprites (void) {
     qsort (current_project.sprites, current_project.sprites_count, sizeof (RSP_Sprite), CompareTextureSizes);
+    Rectangle atlas_bounds = CLITERAL(Rectangle){ 0, 0, current_project.atlas_size, current_project.atlas_size };
 
     int textures_placed = 0;
     for (size_t i = 0; i < current_project.sprites_count; i++) {
@@ -791,6 +835,26 @@ void SortSprites (void) {
             }
         }
 
+        bool inside_top_left = (current_rectangle->x >= atlas_bounds.x && current_rectangle->y >= atlas_bounds.y);
+        bool inside_bottom_right = (
+            (current_rectangle->x + current_rectangle->width) <= (atlas_bounds.x + atlas_bounds.width) &&
+            (current_rectangle->y + current_rectangle->height) <= (atlas_bounds.y + atlas_bounds.height)
+        );
+
+        if (!inside_top_left || !inside_bottom_right) {
+            for (size_t k = textures_placed; k < current_project.sprites_count; k++) {
+                RSP_Sprite* sprite = &current_project.sprites[k];
+
+                UnloadTexture (sprite->texture);
+
+                if (sprite->animation.frames_count > 0) MemFree (sprite->animation.frames);
+            }
+
+            current_project.sprites_count = textures_placed;
+
+            break;
+        }
+
         textures_placed++;
     }
 }
@@ -805,6 +869,142 @@ void RenderAtlas (void) {
             DrawTextureV (sprite->texture, CLITERAL(Vector2){ sprite->source.x, sprite->source.y }, WHITE);
         }
     EndTextureMode ();
+}
+
+// -----------------------------------------------------------------------------
+// Bundles
+// -----------------------------------------------------------------------------
+void RSP_ExportBundle (void) {
+    const char* file = TextFormat ("%s/%s/bundle%s", DEFAULT_PROJECT_DIRECTORY, current_project.name, DEFAULT_BUNDLE_EXTENSION);
+
+    FILE* output = fopen (file, "wb");
+
+    int32_t atlas_data_raw_size, atlas_data_compressed_size;
+
+    Image atlas_image = LoadImageFromTexture (current_project.atlas.texture);
+    ImageFlipVertical (&atlas_image);
+
+    unsigned char* image_data_raw = ExportImageToMemory (atlas_image, ".png", &atlas_data_raw_size);
+    unsigned char* image_data_compressed = CompressData (image_data_raw, atlas_data_raw_size, &atlas_data_compressed_size);
+
+    MemFree (image_data_raw);
+    UnloadImage (atlas_image);
+
+    fwrite (&current_project.sprites_count, sizeof (uint16_t), 1, output);
+    fwrite (&atlas_data_compressed_size, sizeof (int32_t), 1, output);
+    fwrite (image_data_compressed, sizeof (unsigned char), atlas_data_compressed_size, output);
+
+    for (size_t i = 0; i < current_project.sprites_count; i++) {
+        RSP_Sprite* sprite = &current_project.sprites[i];
+
+        // Small header
+        fwrite ("SPR", sizeof (char), 4, output);
+
+        fwrite (sprite->name, sizeof (char), MAX_ASSET_NAME_LENGTH, output);
+        fwrite (&sprite->flags, sizeof (uint16_t), 1, output);
+
+        fwrite (&sprite->origin.x, sizeof (float), 1, output);
+        fwrite (&sprite->origin.y, sizeof (float), 1, output);
+
+        fwrite (&sprite->source.x, sizeof (float), 1, output);
+        fwrite (&sprite->source.y, sizeof (float), 1, output);
+        fwrite (&sprite->source.width, sizeof (float), 1, output);
+        fwrite (&sprite->source.height, sizeof (float), 1, output);
+
+        if (sprite->flags & RSP_SPRITE_ANIMATED) {
+            fwrite (&sprite->animation.frames_count, sizeof (uint16_t), 1, output);
+
+            for (size_t j = 0; j < sprite->animation.frames_count; j++) {
+                fwrite (&sprite->animation.frames[i].x, sizeof (float), 1, output);
+                fwrite (&sprite->animation.frames[i].y, sizeof (float), 1, output);
+                fwrite (&sprite->animation.frames[i].width, sizeof (float), 1, output);
+                fwrite (&sprite->animation.frames[i].height, sizeof (float), 1, output);
+            }
+        }
+    }
+
+    MemFree (image_data_compressed);
+
+    fclose (output);
+}
+
+void RSP_LoadBundle (void) {
+    const char* file = TextFormat ("%s/%s/bundle%s", DEFAULT_PROJECT_DIRECTORY, current_project.name, DEFAULT_BUNDLE_EXTENSION);
+
+    FILE* import = fopen (file, "rb");
+
+    if (!import) goto free;
+
+    uint16_t sprite_count;
+    int32_t atlas_data_raw_size, atlas_data_compressed_size;
+
+    fread (&sprite_count, sizeof (uint16_t), 1, import);
+    fread (&atlas_data_compressed_size, sizeof (int32_t), 1, import);
+
+    unsigned char* atlas_data_compressed = calloc (atlas_data_compressed_size, sizeof (unsigned char));
+    unsigned char* atlas_data_raw;
+
+    fread (atlas_data_compressed, sizeof (unsigned char), atlas_data_compressed_size, import);
+    atlas_data_raw = DecompressData (atlas_data_compressed, atlas_data_compressed_size, &atlas_data_raw_size);
+
+    Image atlas = LoadImageFromMemory (".png", atlas_data_raw, atlas_data_raw_size);
+
+    ExportImage (atlas, "output.png");
+
+    UnloadImage (atlas);
+
+    // Load atlas here
+
+    MemFree (atlas_data_compressed);
+    MemFree (atlas_data_raw);
+
+    RSP_Sprite* sprites = calloc (sprite_count, sizeof (RSP_Sprite));
+    char* header = calloc (4, sizeof (char));
+
+    for (size_t i = 0; i < sprite_count; i++) {
+        fread (header, sizeof (char), 4, import);
+
+        // if (TextIsEqual (header, "SPR")) TraceLog (LOG_INFO, "FOUND SPR!");
+
+        RSP_Sprite* sprite = &sprites[i];
+
+        fread (sprite->name, sizeof (char), MAX_ASSET_NAME_LENGTH, import);
+        fread (&sprite->flags, sizeof (uint16_t), 1, import);
+
+        fread (&sprite->origin.x, sizeof (float), 1, import);
+        fread (&sprite->origin.y, sizeof (float), 1, import);
+
+        fread (&sprite->source.x, sizeof (float), 1, import);
+        fread (&sprite->source.y, sizeof (float), 1, import);
+        fread (&sprite->source.width, sizeof (float), 1, import);
+        fread (&sprite->source.height, sizeof (float), 1, import);
+
+        if (sprite->flags & RSP_SPRITE_ANIMATED) {
+            fread (&sprite->animation.frames_count, sizeof (uint16_t), 1, import);
+            sprite->animation.frames = calloc (sprite->animation.frames_count, sizeof (Rectangle));
+
+            for (size_t j = 0; j < sprite->animation.frames_count; j++) {
+                fread (&sprite->animation.frames[j].x, sizeof (float), 1, import);
+                fread (&sprite->animation.frames[j].y, sizeof (float), 1, import);
+                fread (&sprite->animation.frames[j].width, sizeof (float), 1, import);
+                fread (&sprite->animation.frames[j].height, sizeof (float), 1, import);
+            }
+        }
+    }
+
+    for (size_t i = 0; i < sprite_count; i++) {
+        RSP_Sprite* sprite = &sprites[i];
+
+        MemFree (sprite->animation.frames);
+    }
+
+    MemFree (header);
+    MemFree (sprites);
+
+    TraceLog (LOG_INFO, "Sprite count: %d", sprite_count);
+
+free:
+    fclose (import);
 }
 
 // -----------------------------------------------------------------------------
