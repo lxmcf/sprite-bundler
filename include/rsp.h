@@ -2,26 +2,9 @@
 #define RSP_H
 
 #include <raylib.h>
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-int GetSpriteId (const char* name);
-void DrawSprite (int id, Vector2 position, Color color);
-
-// #define RSP_IMPLEMENTATION
-#ifdef RSP_IMPLEMENTATION
-
 #include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
 
 #define MAX_SPRITE_NAME_LENGTH 32
-#define HEADER_SIZE 4
-
-#define RSP_SPRITE_ANIMATED 1 << 0
-#define RSP_SPRITE_ORIGIN 1 << 1
 
 typedef struct Sprite {
     uint64_t hash;
@@ -39,14 +22,52 @@ typedef struct Sprite {
 } Sprite;
 
 typedef struct SpriteBundle {
+    int id;
+
     Texture2D atlas;
 
     Sprite* sprites;
     uint16_t sprites_count;
 } SpriteBundle;
 
-static SpriteBundle* rsp__current_bundle = NULL;
+#ifdef __cplusplus
+extern "C" {
+#endif
 
+int GetSpriteId (const char* name);
+void DrawSprite (int id, Vector2 position, Color colour);
+void DrawSpriteEx (int id, Vector2 position, Vector2 scale, float rotation, Color colour);
+
+Vector2 GetSpriteOrigin (int id);
+void SetSpriteOrigin (int id, Vector2 origin);
+
+Vector2 GetSpriteSize (int id);
+const char* GetSpriteName (int id);
+
+SpriteBundle LoadBundle (const char* filename);
+void SetActiveBundle (SpriteBundle* bundle);
+int IsBundleReady (SpriteBundle bundle);
+
+void UnloadBundle (SpriteBundle bundle);
+
+// #define RSP_IMPLEMENTATION // Used for debugging
+#ifdef RSP_IMPLEMENTATION
+
+#include <stdio.h>
+#include <stdlib.h>
+
+#define HEADER_SIZE 4
+
+#define RSP_SPRITE_ANIMATED 1 << 0
+#define RSP_SPRITE_ORIGIN 1 << 1
+
+// -----------------------------------------------------------------------------
+// PRIVATE DATA
+// -----------------------------------------------------------------------------
+static SpriteBundle* rsp__current_bundle = NULL;
+static int rsp__bundles_loaded = 0;
+
+// Taken from https://benhoyt.com/writings/hash-table-in-c/
 static uint64_t rsp__hash (const char* key) {
     #define FNV_OFFSET 14695981039346656037UL
     #define FNV_PRIME 1099511628211UL
@@ -61,6 +82,9 @@ static uint64_t rsp__hash (const char* key) {
     return hash;
 }
 
+// -----------------------------------------------------------------------------
+// USER METHODS
+// -----------------------------------------------------------------------------
 int GetSpriteId (const char* name) {
     if (rsp__current_bundle == NULL) return -1;
 
@@ -73,25 +97,77 @@ int GetSpriteId (const char* name) {
     return -1;
 }
 
-void DrawSprite (int id, Vector2 position, Color color) {
+void DrawSprite (int id, Vector2 position, Color colour) {
     if (rsp__current_bundle == NULL || id > rsp__current_bundle->sprites_count) return;
-
     Sprite* sprite = &rsp__current_bundle->sprites[id];
-    DrawTexturePro (rsp__current_bundle->atlas, sprite->source, CLITERAL(Rectangle){ position.x, position.y, sprite->source.width, sprite->source.height }, sprite->origin, 0.0f, color);
+
+    DrawTexturePro (rsp__current_bundle->atlas, sprite->source, CLITERAL(Rectangle){ position.x, position.y, sprite->source.width, sprite->source.height }, sprite->origin, 0.0f, colour);
 }
 
-SpriteBundle LoadBundle (const char* filename);
-void SetActiveBundle (SpriteBundle* bundle);
-int IsBundleReady (SpriteBundle bundle);
+void DrawSpriteEx (int id, Vector2 position, Vector2 scale, float rotation, Color colour) {
+    if (rsp__current_bundle == NULL || id > rsp__current_bundle->sprites_count) return;
+    Sprite* sprite = &rsp__current_bundle->sprites[id];
 
-void UnloadBundle (SpriteBundle bundle);
+    Rectangle output = CLITERAL(Rectangle){
+        .x = position.x,
+        .y = position.y,
+        .width = sprite->source.width * scale.x,
+        .height = sprite->source.height * scale.y
+    };
 
+    Vector2 adjusted_origin = CLITERAL(Vector2) {
+        sprite->origin.x * scale.x,
+        sprite->origin.y * scale.y
+    };
+
+    DrawTexturePro (rsp__current_bundle->atlas, sprite->source, output, adjusted_origin, rotation, colour);
+}
+
+Vector2 GetSpriteOrigin (int id) {
+    if (rsp__current_bundle == NULL || id > rsp__current_bundle->sprites_count) return CLITERAL(Vector2){ 0, 0 };;
+    Sprite* sprite = &rsp__current_bundle->sprites[id];
+
+    return sprite->origin;
+}
+
+void SetSpriteOrigin (int id, Vector2 origin) {
+    if (rsp__current_bundle == NULL || id > rsp__current_bundle->sprites_count) return;
+    Sprite* sprite = &rsp__current_bundle->sprites[id];
+
+    sprite->origin = origin;
+}
+
+Vector2 GetSpriteSize (int id) {
+    if (rsp__current_bundle == NULL || id > rsp__current_bundle->sprites_count) return CLITERAL(Vector2){ 0, 0 };
+    Sprite* sprite = &rsp__current_bundle->sprites[id];
+
+    return CLITERAL(Vector2) { sprite->source.width, sprite->source.height };
+}
+
+const char* GetSpriteName (int id) {
+    if (rsp__current_bundle == NULL || id > rsp__current_bundle->sprites_count) return "null";
+    Sprite* sprite = &rsp__current_bundle->sprites[id];
+
+    return sprite->name;
+}
+
+// -----------------------------------------------------------------------------
+// CORE METHODS
+// -----------------------------------------------------------------------------
 SpriteBundle LoadBundle (const char* filename) {
     SpriteBundle bundle = { 0 };
 
     FILE* bundle_info = fopen (filename, "rb");
     if (!bundle_info) {
-        TraceLog (LOG_ERROR, "RSP: [%s] Failed to open file", filename);
+        TraceLog (LOG_ERROR, "BUNDLE: [%s] Failed to open file", filename);
+        goto bundle_close;
+    }
+
+    char* file_type = RL_MALLOC (sizeof (char) * 4);
+    fread (file_type, sizeof (char), 4, bundle_info);
+
+    if (!TextIsEqual (file_type, "RSPX")) {
+        TraceLog (LOG_ERROR, "BUNDLE: [%s] File was not a sprite bundle", file_type);
         goto bundle_close;
     }
 
@@ -121,7 +197,7 @@ SpriteBundle LoadBundle (const char* filename) {
         fread (header, sizeof (char), HEADER_SIZE, bundle_info);
 
         if (!TextIsEqual ("SPR", header)) {
-            TraceLog (LOG_ERROR, "RSP: [%s] Expected [RSP] header", header);
+            TraceLog (LOG_ERROR, "BUNDLE: [%s] Expected [RSP] header", header);
             bundle.sprites_count = i;
 
             UnloadBundle (bundle);
@@ -165,6 +241,8 @@ bundle_free:
 bundle_close:
     fclose (bundle_info);
 
+    bundle.id = ++rsp__bundles_loaded;
+
     return bundle;
 }
 
@@ -180,7 +258,6 @@ int IsBundleReady (SpriteBundle bundle) {
     return result;
 }
 
-
 void UnloadBundle (SpriteBundle bundle) {
     for (size_t i = 0; i < bundle.sprites_count; i++) {
         Sprite* sprite = &bundle.sprites[i];
@@ -191,9 +268,14 @@ void UnloadBundle (SpriteBundle bundle) {
     }
 
     RL_FREE (bundle.sprites);
+
+    UnloadTexture (bundle.atlas);
+
+    TraceLog (LOG_INFO, "BUNDLE: [ID %d] Sprite bundle unloaded successfully", bundle.id);
+
+    rsp__bundles_loaded--;
 }
 
-#undef MAX_SPRITE_NAME_LENGTH
 #undef HEADER_SIZE
 
 #undef RSP_SPRITE_ANIMATED
@@ -204,5 +286,7 @@ void UnloadBundle (SpriteBundle bundle) {
 #ifdef __cplusplus
 }
 #endif // __cplusplus
+
+#undef MAX_SPRITE_NAME_LENGTH
 
 #endif // RSP_H

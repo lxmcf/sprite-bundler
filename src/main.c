@@ -86,6 +86,7 @@ typedef struct RSP_Sprite {
     struct {
         Rectangle* frames;
         uint16_t frames_count;
+        uint16_t frames_speed;
     } animation; // Not used
 } RSP_Sprite;
 
@@ -161,10 +162,11 @@ struct {
 } WELCOME_STATE;
 
 struct {
-    RSP_Sprite* current_selected_sprite;
     RSP_Sprite* current_hovered_sprite;
 
     Vector2 mouse;
+
+    bool show_sprite_name_editor;
 } EDITOR_STATE;
 
 // -----------------------------------------------------------------------------
@@ -214,7 +216,7 @@ int main (int argc, const char* argv[]) {
 
     {   // :framerate
         int fps = GetMonitorRefreshRate (GetCurrentMonitor ());
-        SetTargetFPS (fps <= 0 ? fps : 60);
+        SetTargetFPS (fps <= 0 ? 60 : fps);
     }
 
     {   // :widgets
@@ -257,7 +259,25 @@ int main (int argc, const char* argv[]) {
 
                 Rectangle text_bounds = CLITERAL(Rectangle){ (GetScreenWidth () / 2) - (180 - 8), (GetScreenHeight ()) / 2 - (90 - 32), 360 - 16, 180 - 40 };
                 GuiDrawText (alert_text, text_bounds, TEXT_ALIGN_CENTER, GetColor (GuiGetStyle (DEFAULT, TEXT_COLOR_NORMAL)));
+            }
 
+            if (EDITOR_STATE.show_sprite_name_editor) {
+                DrawRectangle (0, 0, GetScreenWidth (), GetScreenHeight (), GuiFade (GetColor (GuiGetStyle (DEFAULT, BACKGROUND_COLOR)), 0.75f));
+
+                const float bounds_width = 256.0f;
+                const float bounds_height = 48.0f;
+
+                Rectangle bounds = CLITERAL(Rectangle) {
+                    .x = ((GetScreenWidth () / 2) - (bounds_width / 2)),
+                    .y = ((GetScreenHeight () / 2) - (bounds_height / 2)),
+
+                    .width = bounds_width,
+                    .height = bounds_height,
+                };
+
+                if (GuiTextBox (bounds, EDITOR_STATE.current_hovered_sprite->name, MAX_ASSET_NAME_LENGTH, true)) {
+                    EDITOR_STATE.show_sprite_name_editor = false;
+                }
             }
 
             #if BUILD_DEBUG
@@ -313,17 +333,10 @@ void RSP_UpdateWelcome (void) {
 
     RSP_ProjectError result = RSP_PROJECT_ERROR_NULL;
 
-    if (widget_welcome.button_new_project_pressed) {
-        result = RSP_CreateAndLoadProject (widget_welcome.textbox_project_name_text);
-    }
+    if (widget_welcome.button_new_project_pressed) result = RSP_CreateAndLoadProject (widget_welcome.textbox_project_name_text);
+    if (widget_welcome.button_load_project_pressed) result = RSP_LoadProject (WELCOME_STATE.files.paths[widget_welcome.list_projects_active]);
 
-    if (widget_welcome.button_load_project_pressed) {
-        result = RSP_LoadProject (WELCOME_STATE.files.paths[widget_welcome.list_projects_active]);
-    }
-
-    if (widget_welcome.button_delete_project_pressed) {
-        ShowAlert ("NOT YET IMPLIMENTED");
-    }
+    if (widget_welcome.button_delete_project_pressed) ShowAlert ("NOT YET IMPLIMENTED");
 
     if (IsFileDropped ()) {
         FilePathList files = LoadDroppedFiles ();
@@ -374,11 +387,12 @@ void RSP_UpdateEditor (void) {
     }
 
     float wheel = GetMouseWheelMove ();
-        if (wheel != 0) {
+
+    if (wheel != 0) {
         camera.offset = GetMousePosition();
         camera.target = EDITOR_STATE.mouse;
 
-        const float zoom_amount = 0.125f;
+        const float zoom_amount = 0.125f * (IsKeyDown (KEY_LEFT_CONTROL) + 1);
 
         camera.zoom += (wheel * zoom_amount);
         if (camera.zoom < zoom_amount) camera.zoom = zoom_amount;
@@ -394,9 +408,7 @@ void RSP_UpdateEditor (void) {
         UnloadDroppedFiles (files);
     }
 
-    if (widget_toolbar.button_save_project_pressed) {
-        RSP_SaveProject ();
-    }
+    if (widget_toolbar.button_save_project_pressed) RSP_SaveProject ();
 
     if (widget_toolbar.button_export_png_pressed) {
         const char* filename = TextFormat ("%s/%s/%s", DEFAULT_PROJECT_DIRECTORY, current_project.name, "atlas.png");
@@ -407,32 +419,47 @@ void RSP_UpdateEditor (void) {
         ImageFlipVertical (&atlas);
 
         ExportImage (atlas, filename);
-
         UnloadImage (atlas);
 
         ShowAlert ("Atlas exported!");
-    }
-
-    if (IsKeyPressed (KEY_ENTER)) {
-        RSP_LoadBundle ();
     }
 
     if (widget_toolbar.button_export_bundle_pressed) {
         RSP_ExportBundle ();
     }
 
-    EDITOR_STATE.current_hovered_sprite = NULL;
+    if (!EDITOR_STATE.show_sprite_name_editor) {
+        EDITOR_STATE.current_hovered_sprite = NULL;
 
-    for (size_t i = 0; i < current_project.sprites_count; i++) {
-        RSP_Sprite* sprite = &current_project.sprites[i];
+        for (size_t i = 0; i < current_project.sprites_count; i++) {
+            RSP_Sprite* sprite = &current_project.sprites[i];
 
-        if (CheckCollisionPointRec (EDITOR_STATE.mouse, sprite->source)) {
-            if (IsMouseButtonPressed (MOUSE_BUTTON_LEFT)) {
-                EDITOR_STATE.current_selected_sprite = sprite;
+            if (CheckCollisionPointRec (EDITOR_STATE.mouse, sprite->source)) {
+                EDITOR_STATE.current_hovered_sprite = sprite;
+                break;
+            }
+        }
+    }
+
+    if (GetMousePosition ().y > 48) {
+        if (EDITOR_STATE.current_hovered_sprite != NULL) {
+            if (IsMouseButtonReleased (MOUSE_BUTTON_LEFT)) {
+                Vector2 origin_offset = CLITERAL (Vector2) {
+                    EDITOR_STATE.current_hovered_sprite->source.x,
+                    EDITOR_STATE.current_hovered_sprite->source.y,
+                };
+
+                Vector2 new_origin = Vector2Subtract (EDITOR_STATE.mouse, origin_offset);
+
+                EDITOR_STATE.current_hovered_sprite->origin = CLITERAL (Vector2) {
+                    roundf (new_origin.x),
+                    roundf (new_origin.y),
+                };
             }
 
-            EDITOR_STATE.current_hovered_sprite = sprite;
-            break;
+            if (IsMouseButtonReleased (MOUSE_BUTTON_RIGHT)) {
+                EDITOR_STATE.show_sprite_name_editor = true;
+            }
         }
     }
 }
@@ -507,7 +534,7 @@ void RSP_RenderEditor (void) {
     DrawTexturePro (current_project.atlas.texture, CLITERAL(Rectangle){ 0, 0, current_project.atlas_size, -current_project.atlas_size }, CLITERAL(Rectangle){ 0, 0, current_project.atlas_size, current_project.atlas_size }, Vector2Zero (), 0.0f, WHITE);
 
     if (EDITOR_STATE.current_hovered_sprite != NULL) {
-        DrawRectangleLinesEx (EDITOR_STATE.current_hovered_sprite->source, 1, GREEN);
+        DrawRectangleLinesEx (EDITOR_STATE.current_hovered_sprite->source, 0.1, GREEN);
 
         DrawLineV (
             CLITERAL(Vector2){ .x = EDITOR_STATE.current_hovered_sprite->source.x, .y = EDITOR_STATE.mouse.y },
@@ -520,6 +547,17 @@ void RSP_RenderEditor (void) {
             CLITERAL(Vector2){ .x = EDITOR_STATE.mouse.x, .y = EDITOR_STATE.current_hovered_sprite->source.y + EDITOR_STATE.current_hovered_sprite->source.height },
             WHITE
         );
+
+        Vector2 origin = Vector2Add (
+            EDITOR_STATE.current_hovered_sprite->origin,
+            CLITERAL (Vector2) {
+                EDITOR_STATE.current_hovered_sprite->source.x,
+                EDITOR_STATE.current_hovered_sprite->source.y
+            }
+        );
+
+        DrawCircleV (origin, 1.0f, Fade (RED, 0.5f));
+        DrawCircleLinesV (origin, 1.0f, RED);
     }
 
     EndMode2D ();
@@ -556,15 +594,17 @@ RSP_ProjectError RSP_CreateAndLoadProject (const char* project_name) {
         current_project.atlas_size = atlas_sizes[widget_welcome.dropdown_atlas_size_active];
     }
 
-    RSP_ProjectError save_status = RSP_SaveProject ();
+    RSP_ProjectError status = RSP_SaveProject ();
 
-    RSP_ProjectError error = RSP_LoadProject (project_file);
-    printf ("%s\n", project_file);
+    if (status == RSP_PROJECT_ERROR_FAILED_WRITE) goto panic;
 
+    status = RSP_LoadProject (project_file);
+
+panic:
     MemFree (project_directory);
     MemFree (project_file);
 
-    return error;
+    return status;
 }
 
 RSP_ProjectError RSP_LoadProject (const char* project_file) {
@@ -675,6 +715,18 @@ RSP_ProjectError RSP_SaveProject (void) {
             json_object_dotset_number (sprite_object, "origin.x", sprite->origin.x);
             json_object_dotset_number (sprite_object, "origin.y", sprite->origin.y);
 
+            // Animation
+            json_object_dotset_number (sprite_object, "animation.speed", sprite->animation.frames_speed);
+            json_object_dotset_number (sprite_object, "animation.frame_count", sprite->animation.frames_count);
+
+            JSON_Value* frames_value = json_value_init_array ();
+            // JSON_Array* frames_array = json_value_get_array (sprites_value);
+
+            // TODO: Actually add it... Maybe
+            for (size_t j = 0; j < sprite->animation.frames_count; j++);
+
+            json_object_dotset_value (sprite_object, "animation.frames", frames_value);
+
             json_array_append_value (sprites_array, sprite_value);
         }
 
@@ -767,8 +819,6 @@ void LoadSprites (FilePathList files) {
         if (__is_image (extension)) {
             filtered_files[filtered_file_count] = files.paths[i];
             filtered_file_count++;
-        } else {
-            TraceLog (LOG_INFO, "EXTENSION: %s", TextToLower (extension));
         }
     }
 
@@ -879,6 +929,10 @@ void RSP_ExportBundle (void) {
     MemFree (image_data_raw);
     UnloadImage (atlas_image);
 
+    const char* file_type = "RSPX";
+
+    fwrite (file_type, sizeof (char), 4, output);
+
     fwrite (&current_project.sprites_count, sizeof (uint16_t), 1, output);
     fwrite (&atlas_data_compressed_size, sizeof (int32_t), 1, output);
     fwrite (image_data_compressed, sizeof (unsigned char), atlas_data_compressed_size, output);
@@ -902,6 +956,7 @@ void RSP_ExportBundle (void) {
 
         if (sprite->flags & RSP_SPRITE_ANIMATED) {
             fwrite (&sprite->animation.frames_count, sizeof (uint16_t), 1, output);
+            fwrite (&sprite->animation.frames_speed, sizeof (uint16_t), 1, output);
 
             for (size_t j = 0; j < sprite->animation.frames_count; j++) {
                 fwrite (&sprite->animation.frames[i].x, sizeof (float), 1, output);
@@ -929,9 +984,11 @@ void RSP_ExportBundle (void) {
     }
 
     fprintf (header_output, "} RSP_SpriteName\n");
-    fprintf (header_output, "\n#endif // RSP_SPRITE_NAMES\n");
+    fprintf (header_output, "\n#endif // RSP_SPRITE_NAMES;\n");
 
     fclose (header_output);
+
+    ShowAlert ("Bundle exported!");
 }
 
 void RSP_LoadBundle (void) {
@@ -979,6 +1036,8 @@ void RSP_LoadBundle (void) {
 
         if (sprite->flags & RSP_SPRITE_ANIMATED) {
             fread (&sprite->animation.frames_count, sizeof (uint16_t), 1, import);
+            fread (&sprite->animation.frames_speed, sizeof (uint16_t), 1, import);
+
             sprite->animation.frames = calloc (sprite->animation.frames_count, sizeof (Rectangle));
 
             for (size_t j = 0; j < sprite->animation.frames_count; j++) {
@@ -998,8 +1057,6 @@ void RSP_LoadBundle (void) {
 
     MemFree (header);
     MemFree (sprites);
-
-    TraceLog (LOG_INFO, "Sprite count: %d", sprite_count);
 
 free:
     fclose (import);

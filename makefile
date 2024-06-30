@@ -12,7 +12,7 @@ PLATFORM ?= PLATFORM_DESKTOP
 
 PLATFORM_OS := Linux
 RUNNER :=
-CC ?= clang
+CC ?= gcc
 
 SRC_FILES := $(wildcard src/*.c) $(wildcard src/*/*.c)
 INCLUDES :=
@@ -62,7 +62,6 @@ endif
 # ----------------------------------------------------------------------------------
 ifeq ($(PLATFORM), PLATFORM_DESKTOP)
 	DEFINES += -DPLATFORM_DESKTOP
-	CC = clang
 
 	ifeq ($(PLATFORM_OS), WINDOWS)
 		DEFINES += -DPLATFORM_WINDOWS
@@ -99,8 +98,6 @@ endif
 ifeq ($(PLATFORM), PLATFORM_WEB)
 	EXE_EXT = .html
 	RUNNER = emrun
-
-	CC = emcc
 
 	LD_FLAGS += -s USE_GLFW=3 -s ASYNCIFY --preload-file $(ASSET_DIR) --shell-file $(DATA_DIR)shell.html
 	SRC_FILES := $(SRC_FILES) $(LIB_DIR)libraylib.a
