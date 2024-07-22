@@ -1018,8 +1018,8 @@ void RSP_ExportBundle (void) {
         fprintf (header_output, "\tSPRITE_%s = %zu,\n", TextToUpper (current_project.sprites[i].name), i);
     }
 
-    fprintf (header_output, "} RSP_SpriteName\n");
-    fprintf (header_output, "\n#endif // RSP_SPRITE_NAMES;\n");
+    fprintf (header_output, "} RSP_SpriteName;\n");
+    fprintf (header_output, "\n#endif // RSP_SPRITE_NAMES\n");
 
     fclose (header_output);
 
