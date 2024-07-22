@@ -1,0 +1,11 @@
+IndentWidth: 4
+AlignConsecutiveAssignments: Consecutive
+AlignConsecutiveMacros: Consecutive
+AlignArrayOfStructures: Left
+PointerAlignment: Left
+SpaceBeforeParens: Always
+SpaceInEmptyBlock: true
+IndentCaseLabels: true
+ColumnLimit: 0
+SpacesInContainerLiterals: true
+AllowShortLoopsOnASingleLine: true

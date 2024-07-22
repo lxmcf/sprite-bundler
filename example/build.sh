@@ -1,3 +1,3 @@
 #!/bin/bash
 
-gcc -lraylib -lm -pedantic -Wall main.c -I../include -o demo
+gcc  main.c -lraylib -lm -pedantic -Wall -I../include -o demo

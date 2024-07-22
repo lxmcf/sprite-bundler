@@ -59,18 +59,18 @@ void UnloadBundle (SpriteBundle bundle);
 #define HEADER_SIZE 4
 
 #define RSP_SPRITE_ANIMATED 1 << 0
-#define RSP_SPRITE_ORIGIN 1 << 1
+#define RSP_SPRITE_ORIGIN   1 << 1
 
 // -----------------------------------------------------------------------------
 // PRIVATE DATA
 // -----------------------------------------------------------------------------
 static SpriteBundle* rsp__current_bundle = NULL;
-static int rsp__bundles_loaded = 0;
+static int rsp__bundles_loaded           = 0;
 
 // Taken from https://benhoyt.com/writings/hash-table-in-c/
 static uint64_t rsp__hash (const char* key) {
-    #define FNV_OFFSET 14695981039346656037UL
-    #define FNV_PRIME 1099511628211UL
+#define FNV_OFFSET 14695981039346656037UL
+#define FNV_PRIME  1099511628211UL
 
     uint64_t hash = FNV_OFFSET;
 
@@ -86,66 +86,73 @@ static uint64_t rsp__hash (const char* key) {
 // USER METHODS
 // -----------------------------------------------------------------------------
 int GetSpriteId (const char* name) {
-    if (rsp__current_bundle == NULL) return -1;
+    if (rsp__current_bundle == NULL)
+        return -1;
 
     uint64_t hash = rsp__hash (name);
 
     for (size_t i = 0; i < rsp__current_bundle->sprites_count; i++) {
-        if (hash == rsp__current_bundle->sprites[i].hash) return i;
+        if (hash == rsp__current_bundle->sprites[i].hash)
+            return i;
     }
 
     return -1;
 }
 
 void DrawSprite (int id, Vector2 position, Color colour) {
-    if (rsp__current_bundle == NULL || id > rsp__current_bundle->sprites_count) return;
+    if (rsp__current_bundle == NULL || id > rsp__current_bundle->sprites_count)
+        return;
     Sprite* sprite = &rsp__current_bundle->sprites[id];
 
-    DrawTexturePro (rsp__current_bundle->atlas, sprite->source, CLITERAL(Rectangle){ position.x, position.y, sprite->source.width, sprite->source.height }, sprite->origin, 0.0f, colour);
+    DrawTexturePro (rsp__current_bundle->atlas, sprite->source, CLITERAL (Rectangle){position.x, position.y, sprite->source.width, sprite->source.height}, sprite->origin, 0.0f, colour);
 }
 
 void DrawSpriteEx (int id, Vector2 position, Vector2 scale, float rotation, Color colour) {
-    if (rsp__current_bundle == NULL || id > rsp__current_bundle->sprites_count) return;
+    if (rsp__current_bundle == NULL || id > rsp__current_bundle->sprites_count)
+        return;
     Sprite* sprite = &rsp__current_bundle->sprites[id];
 
-    Rectangle output = CLITERAL(Rectangle){
-        .x = position.x,
-        .y = position.y,
-        .width = sprite->source.width * scale.x,
-        .height = sprite->source.height * scale.y
-    };
+    Rectangle output = CLITERAL (Rectangle){
+        .x      = position.x,
+        .y      = position.y,
+        .width  = sprite->source.width * scale.x,
+        .height = sprite->source.height * scale.y};
 
-    Vector2 adjusted_origin = CLITERAL(Vector2) {
+    Vector2 adjusted_origin = CLITERAL (Vector2){
         sprite->origin.x * scale.x,
-        sprite->origin.y * scale.y
-    };
+        sprite->origin.y * scale.y};
 
     DrawTexturePro (rsp__current_bundle->atlas, sprite->source, output, adjusted_origin, rotation, colour);
 }
 
 Vector2 GetSpriteOrigin (int id) {
-    if (rsp__current_bundle == NULL || id > rsp__current_bundle->sprites_count) return CLITERAL(Vector2){ 0, 0 };;
+    if (rsp__current_bundle == NULL || id > rsp__current_bundle->sprites_count)
+        return CLITERAL (Vector2){0, 0};
+    ;
     Sprite* sprite = &rsp__current_bundle->sprites[id];
 
     return sprite->origin;
 }
 
 void SetSpriteOrigin (int id, Vector2 origin) {
-    if (rsp__current_bundle == NULL || id > rsp__current_bundle->sprites_count) return;
+    if (rsp__current_bundle == NULL || id > rsp__current_bundle->sprites_count)
+        return;
     Sprite* sprite = &rsp__current_bundle->sprites[id];
 
     sprite->origin = origin;
 }
 
 Vector2 GetSpriteSize (int id) {
-    if (rsp__current_bundle == NULL || id > rsp__current_bundle->sprites_count) return CLITERAL(Vector2){ 0, 0 };
+    if (rsp__current_bundle == NULL || id > rsp__current_bundle->sprites_count)
+        return CLITERAL (Vector2){0, 0};
     Sprite* sprite = &rsp__current_bundle->sprites[id];
 
-    return CLITERAL(Vector2) { sprite->source.width, sprite->source.height };
+    return CLITERAL (Vector2){sprite->source.width, sprite->source.height};
 }
 
 const char* GetSpriteName (int id) {
-    if (rsp__current_bundle == NULL || id > rsp__current_bundle->sprites_count) return "null";
+    if (rsp__current_bundle == NULL || id > rsp__current_bundle->sprites_count)
+        return "null";
     Sprite* sprite = &rsp__current_bundle->sprites[id];
 
     return sprite->name;
@@ -155,7 +162,7 @@ const char* GetSpriteName (int id) {
 // CORE METHODS
 // -----------------------------------------------------------------------------
 SpriteBundle LoadBundle (const char* filename) {
-    SpriteBundle bundle = { 0 };
+    SpriteBundle bundle = {0};
 
     FILE* bundle_info = fopen (filename, "rb");
     if (!bundle_info) {
@@ -183,7 +190,7 @@ SpriteBundle LoadBundle (const char* filename) {
     atlas_data_raw = DecompressData (atlas_data_compressed, atlas_data_size_compressed, &atlas_data_size_raw);
 
     Image atlas_image = LoadImageFromMemory (".png", atlas_data_raw, atlas_data_size_raw);
-    bundle.atlas = LoadTextureFromImage (atlas_image);
+    bundle.atlas      = LoadTextureFromImage (atlas_image);
 
     UnloadImage (atlas_image);
 
@@ -191,7 +198,7 @@ SpriteBundle LoadBundle (const char* filename) {
     RL_FREE (atlas_data_raw);
 
     bundle.sprites = RL_CALLOC (bundle.sprites_count, sizeof (Sprite));
-    char* header = RL_CALLOC (HEADER_SIZE, sizeof (unsigned char));
+    char* header   = RL_CALLOC (HEADER_SIZE, sizeof (unsigned char));
 
     for (size_t i = 0; i < bundle.sprites_count; i++) {
         fread (header, sizeof (char), HEADER_SIZE, bundle_info);
@@ -253,7 +260,8 @@ void SetActiveBundle (SpriteBundle* bundle) {
 int IsBundleReady (SpriteBundle bundle) {
     int result = 0;
 
-    if ((bundle.sprites_count != 0) && (IsTextureReady (bundle.atlas))) result = 1;
+    if ((bundle.sprites_count != 0) && (IsTextureReady (bundle.atlas)))
+        result = 1;
 
     return result;
 }

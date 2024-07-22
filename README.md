@@ -20,10 +20,15 @@ A basic sprite packer to combine multiple sprites into 1 texture atlas and expor
 1. Animation's are 'kind of' ready to be added
 1. I may not update this any further
 
+## Controls
+1. Zoom - Middle Mouse
+1. Pan - Middle Mouse or ALT
+1. Change Origin - Left Click
+1. Change Sprite Name - Right Click
+
 ## API Usage (raylib)
 ```c
 // main.c
-
 #define RSP_IMPLEMENTATION
 #include <rsp.h>
 
@@ -37,13 +42,12 @@ int main (int argc, const char* argv[]) {
 
     while (!WindowShouldClose ()) {
         BeginDrawing ();
-            ClearBackground (RAYWHITE);
-            DrawSprite (GetSpriteId (SPRITE_NAME), CLITERAL(Vector2){ 32, 32 }, WHITE);
+        ClearBackground (RAYWHITE);
+        DrawSprite (GetSpriteId (SPRITE_NAME), CLITERAL (Vector2){32, 32}, WHITE);
         EndDrawing ();
     }
 
     UnloadBundle (bundle);
-
     CloseWindow ();
 
     return 0;

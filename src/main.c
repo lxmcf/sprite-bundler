@@ -6,19 +6,19 @@
 // -----------------------------------------------------------------------------
 #define RAYGUI_IMPLEMENTATION
 #define RAYMATH_STATIC_INLINE
+#include <raygui.h>
 #include <raylib.h>
 #include <raymath.h>
-#include <raygui.h>
 
-#include <sys/stat.h>
 #include <stdint.h>
+#include <sys/stat.h>
 
 #include "vendor/parson.h"
 
 // -----------------------------------------------------------------------------
 // Config
 // -----------------------------------------------------------------------------
-#define MINIMUM_WINDOW_WIDTH 1280
+#define MINIMUM_WINDOW_WIDTH  1280
 #define MINIMUM_WINDOW_HEIGHT 720
 
 #define WINDOW_TITLE "RaySprite"
@@ -31,7 +31,7 @@
 
 #define DEFAULT_PROJECT_DIRECTORY "projects"
 #define DEFAULT_PROJECT_EXTENSION ".rspp"
-#define DEFAULT_PROJECT_VERSION 1
+#define DEFAULT_PROJECT_VERSION   1
 
 #define DEFAULT_BUNDLE_EXTENSION ".rspx"
 
@@ -43,17 +43,17 @@
 #define lengthof(x) (sizeof (x) / sizeof (x[0]))
 
 #ifdef _WIN32
-#   define MakeDirectory(x) _mkdir(x)
+#define MakeDirectory(x) _mkdir (x)
 #else
-#   define MakeDirectory(x) mkdir(x, 0777)
+#define MakeDirectory(x) mkdir (x, 0777)
 #endif
 
 // -----------------------------------------------------------------------------
 // Enums
 // -----------------------------------------------------------------------------
 typedef enum RSP_SpriteFlags {
-    RSP_SPRITE_ANIMATED     = 1 << 0,
-    RSP_SPRITE_ORIGIN       = 1 << 1,
+    RSP_SPRITE_ANIMATED = 1 << 0,
+    RSP_SPRITE_ORIGIN   = 1 << 1,
 } RSP_SpriteFlags;
 
 typedef enum RSP_ProjectError {
@@ -209,80 +209,91 @@ void ShowAlert (const char* text);
 int main (int argc, const char* argv[]) {
     InitWindow (MINIMUM_WINDOW_WIDTH, MINIMUM_WINDOW_HEIGHT, WINDOW_TITLE);
 
-    {   // :window settings
+    { // :window settings
         SetWindowMinSize (MINIMUM_WINDOW_WIDTH, MINIMUM_WINDOW_HEIGHT);
         SetWindowState (WINDOW_FLAGS);
     }
 
-    {   // :framerate
+    { // :framerate
         int fps = GetMonitorRefreshRate (GetCurrentMonitor ());
         SetTargetFPS (fps <= 0 ? 60 : fps);
     }
 
-    {   // :widgets
+    { // :widgets
         widget_welcome = RSP_InitWelcome ();
         widget_toolbar = RSP_InitToolbar ();
     }
 
     current_application_mode = RSP_MODE_WELCOME;
 
-    camera = CLITERAL(Camera2D){ 0 };
+    camera      = CLITERAL (Camera2D){0};
     camera.zoom = 1.0f;
 
     WELCOME_STATE.files = LoadDirectoryFilesEx (DEFAULT_PROJECT_DIRECTORY, DEFAULT_PROJECT_EXTENSION, true);
 
     while (!WindowShouldClose () && widget_welcome.active) {
-        if (should_show_alert) GuiLock ();
+        if (should_show_alert)
+            GuiLock ();
 
         switch (current_application_mode) {
-            case RSP_MODE_WELCOME:  RSP_UpdateWelcome (); break;
-            case RSP_MODE_EDITOR:   RSP_UpdateEditor (); break;
+            case RSP_MODE_WELCOME:
+                RSP_UpdateWelcome ();
+                break;
+            case RSP_MODE_EDITOR:
+                RSP_UpdateEditor ();
+                break;
 
-            default: break;
+            default:
+                break;
         }
 
         BeginDrawing ();
-            ClearBackground (GetColor (GuiGetStyle (DEFAULT, BACKGROUND_COLOR)));
-            switch (current_application_mode) {
-                case RSP_MODE_WELCOME:  RSP_RenderWelcome (); break;
-                case RSP_MODE_EDITOR:   RSP_RenderEditor (); break;
+        ClearBackground (GetColor (GuiGetStyle (DEFAULT, BACKGROUND_COLOR)));
+        switch (current_application_mode) {
+            case RSP_MODE_WELCOME:
+                RSP_RenderWelcome ();
+                break;
+            case RSP_MODE_EDITOR:
+                RSP_RenderEditor ();
+                break;
 
-                default: break;
+            default:
+                break;
+        }
+
+        if (should_show_alert) {
+            GuiUnlock ();
+            DrawRectangle (0, 0, GetScreenWidth (), GetScreenHeight (), GuiFade (GetColor (GuiGetStyle (DEFAULT, BACKGROUND_COLOR)), 0.75f));
+
+            Rectangle window_bounds = CLITERAL (Rectangle){(GetScreenWidth () / 2) - 180, (GetScreenHeight ()) / 2 - 90, 360, 180};
+            should_show_alert       = !GuiWindowBox (window_bounds, "#205#Alert!");
+
+            Rectangle text_bounds = CLITERAL (Rectangle){(GetScreenWidth () / 2) - (180 - 8), (GetScreenHeight ()) / 2 - (90 - 32), 360 - 16, 180 - 40};
+            GuiDrawText (alert_text, text_bounds, TEXT_ALIGN_CENTER, GetColor (GuiGetStyle (DEFAULT, TEXT_COLOR_NORMAL)));
+        }
+
+        if (EDITOR_STATE.show_sprite_name_editor) {
+            DrawRectangle (0, 0, GetScreenWidth (), GetScreenHeight (), GuiFade (GetColor (GuiGetStyle (DEFAULT, BACKGROUND_COLOR)), 0.75f));
+
+            const float bounds_width  = 256.0f;
+            const float bounds_height = 48.0f;
+
+            Rectangle bounds = CLITERAL (Rectangle){
+                .x = ((GetScreenWidth () / 2) - (bounds_width / 2)),
+                .y = ((GetScreenHeight () / 2) - (bounds_height / 2)),
+
+                .width  = bounds_width,
+                .height = bounds_height,
+            };
+
+            if (GuiTextBox (bounds, EDITOR_STATE.current_hovered_sprite->name, MAX_ASSET_NAME_LENGTH, true)) {
+                EDITOR_STATE.show_sprite_name_editor = false;
             }
+        }
 
-            if (should_show_alert) {
-                GuiUnlock ();
-                DrawRectangle (0, 0, GetScreenWidth (), GetScreenHeight (), GuiFade (GetColor (GuiGetStyle (DEFAULT, BACKGROUND_COLOR)), 0.75f));
-
-                Rectangle window_bounds = CLITERAL(Rectangle){ (GetScreenWidth () / 2) - 180, (GetScreenHeight ()) / 2 - 90, 360, 180 };
-                should_show_alert = !GuiWindowBox (window_bounds, "#205#Alert!");
-
-                Rectangle text_bounds = CLITERAL(Rectangle){ (GetScreenWidth () / 2) - (180 - 8), (GetScreenHeight ()) / 2 - (90 - 32), 360 - 16, 180 - 40 };
-                GuiDrawText (alert_text, text_bounds, TEXT_ALIGN_CENTER, GetColor (GuiGetStyle (DEFAULT, TEXT_COLOR_NORMAL)));
-            }
-
-            if (EDITOR_STATE.show_sprite_name_editor) {
-                DrawRectangle (0, 0, GetScreenWidth (), GetScreenHeight (), GuiFade (GetColor (GuiGetStyle (DEFAULT, BACKGROUND_COLOR)), 0.75f));
-
-                const float bounds_width = 256.0f;
-                const float bounds_height = 48.0f;
-
-                Rectangle bounds = CLITERAL(Rectangle) {
-                    .x = ((GetScreenWidth () / 2) - (bounds_width / 2)),
-                    .y = ((GetScreenHeight () / 2) - (bounds_height / 2)),
-
-                    .width = bounds_width,
-                    .height = bounds_height,
-                };
-
-                if (GuiTextBox (bounds, EDITOR_STATE.current_hovered_sprite->name, MAX_ASSET_NAME_LENGTH, true)) {
-                    EDITOR_STATE.show_sprite_name_editor = false;
-                }
-            }
-
-            #if BUILD_DEBUG
-            DrawFPS (8, 8);
-            #endif
+#if BUILD_DEBUG
+        DrawFPS (8, 8);
+#endif
         EndDrawing ();
     }
 
@@ -299,9 +310,10 @@ int main (int argc, const char* argv[]) {
 // UI
 // -----------------------------------------------------------------------------
 RSP_WidgetWelcome RSP_InitWelcome (void) {
-    if (!DirectoryExists (DEFAULT_PROJECT_DIRECTORY)) MakeDirectory (DEFAULT_PROJECT_DIRECTORY);
+    if (!DirectoryExists (DEFAULT_PROJECT_DIRECTORY))
+        MakeDirectory (DEFAULT_PROJECT_DIRECTORY);
 
-    RSP_WidgetWelcome state = CLITERAL(RSP_WidgetWelcome) { 0 };
+    RSP_WidgetWelcome state = CLITERAL (RSP_WidgetWelcome){0};
 
     state.anchor = Vector2Zero ();
     state.active = true;
@@ -310,14 +322,14 @@ RSP_WidgetWelcome RSP_InitWelcome (void) {
 
     strncpy (state.textbox_project_name_text, "Hello World", 12);
 
-    state.width = 640;
+    state.width  = 640;
     state.height = 328;
 
     return state;
 }
 
 RSP_WidgetToolbar RSP_InitToolbar (void) {
-    RSP_WidgetToolbar state = CLITERAL(RSP_WidgetToolbar) { 0 };
+    RSP_WidgetToolbar state = CLITERAL (RSP_WidgetToolbar){0};
 
     state.anchor = Vector2Zero ();
     state.active = false;
@@ -326,17 +338,19 @@ RSP_WidgetToolbar RSP_InitToolbar (void) {
 }
 
 void RSP_UpdateWelcome (void) {
-    widget_welcome.anchor = CLITERAL(Vector2){
+    widget_welcome.anchor = CLITERAL (Vector2){
         (GetScreenWidth () / 2) - (widget_welcome.width / 2),
-        (GetScreenHeight () / 2) - (widget_welcome.height / 2)
-    };
+        (GetScreenHeight () / 2) - (widget_welcome.height / 2)};
 
     RSP_ProjectError result = RSP_PROJECT_ERROR_NULL;
 
-    if (widget_welcome.button_new_project_pressed) result = RSP_CreateAndLoadProject (widget_welcome.textbox_project_name_text);
-    if (widget_welcome.button_load_project_pressed) result = RSP_LoadProject (WELCOME_STATE.files.paths[widget_welcome.list_projects_active]);
+    if (widget_welcome.button_new_project_pressed)
+        result = RSP_CreateAndLoadProject (widget_welcome.textbox_project_name_text);
+    if (widget_welcome.button_load_project_pressed)
+        result = RSP_LoadProject (WELCOME_STATE.files.paths[widget_welcome.list_projects_active]);
 
-    if (widget_welcome.button_delete_project_pressed) ShowAlert ("NOT YET IMPLIMENTED");
+    if (widget_welcome.button_delete_project_pressed)
+        ShowAlert ("NOT YET IMPLIMENTED");
 
     if (IsFileDropped ()) {
         FilePathList files = LoadDroppedFiles ();
@@ -370,32 +384,35 @@ void RSP_UpdateWelcome (void) {
             ShowAlert ("Could not write project file!");
             break;
 
-        default: break;
+        default:
+            break;
     }
 }
 
 void RSP_UpdateEditor (void) {
     EDITOR_STATE.mouse = GetScreenToWorld2D (GetMousePosition (), camera);
 
-    if (GuiIsLocked ()) return;
+    if (GuiIsLocked ())
+        return;
 
     if (IsMouseButtonDown (MOUSE_BUTTON_MIDDLE) || IsKeyDown (KEY_LEFT_ALT)) {
         Vector2 delta = GetMouseDelta ();
 
-        delta = Vector2Scale (delta, -1.0f / camera.zoom);
+        delta         = Vector2Scale (delta, -1.0f / camera.zoom);
         camera.target = Vector2Add (camera.target, delta);
     }
 
     float wheel = GetMouseWheelMove ();
 
     if (wheel != 0) {
-        camera.offset = GetMousePosition();
+        camera.offset = GetMousePosition ();
         camera.target = EDITOR_STATE.mouse;
 
         const float zoom_amount = 0.125f * (IsKeyDown (KEY_LEFT_CONTROL) + 1);
 
         camera.zoom += (wheel * zoom_amount);
-        if (camera.zoom < zoom_amount) camera.zoom = zoom_amount;
+        if (camera.zoom < zoom_amount)
+            camera.zoom = zoom_amount;
     }
 
     if (IsFileDropped ()) {
@@ -408,12 +425,14 @@ void RSP_UpdateEditor (void) {
         UnloadDroppedFiles (files);
     }
 
-    if (widget_toolbar.button_save_project_pressed) RSP_SaveProject ();
+    if (widget_toolbar.button_save_project_pressed)
+        RSP_SaveProject ();
 
     if (widget_toolbar.button_export_png_pressed) {
         const char* filename = TextFormat ("%s/%s/%s", DEFAULT_PROJECT_DIRECTORY, current_project.name, "atlas.png");
 
-        if (FileExists (filename)) remove (filename);
+        if (FileExists (filename))
+            remove (filename);
 
         Image atlas = LoadImageFromTexture (current_project.atlas.texture);
         ImageFlipVertical (&atlas);
@@ -444,14 +463,14 @@ void RSP_UpdateEditor (void) {
     if (GetMousePosition ().y > 48) {
         if (EDITOR_STATE.current_hovered_sprite != NULL) {
             if (IsMouseButtonReleased (MOUSE_BUTTON_LEFT)) {
-                Vector2 origin_offset = CLITERAL (Vector2) {
+                Vector2 origin_offset = CLITERAL (Vector2){
                     EDITOR_STATE.current_hovered_sprite->source.x,
                     EDITOR_STATE.current_hovered_sprite->source.y,
                 };
 
                 Vector2 new_origin = Vector2Subtract (EDITOR_STATE.mouse, origin_offset);
 
-                EDITOR_STATE.current_hovered_sprite->origin = CLITERAL (Vector2) {
+                EDITOR_STATE.current_hovered_sprite->origin = CLITERAL (Vector2){
                     roundf (new_origin.x),
                     roundf (new_origin.y),
                 };
@@ -465,22 +484,24 @@ void RSP_UpdateEditor (void) {
 }
 
 void RSP_RenderWelcome (void) {
-    if (widget_welcome.dropdown_atlas_size_edit) GuiLock();
+    if (widget_welcome.dropdown_atlas_size_edit)
+        GuiLock ();
 
     if (widget_welcome.active) {
-        const Rectangle layouts[] = { // NOTE: Yes I know this is not efficient
-            CLITERAL(Rectangle){ widget_welcome.anchor.x + 0,   widget_welcome.anchor.y + 0, widget_welcome.width, widget_welcome.height },
-            CLITERAL(Rectangle){ widget_welcome.anchor.x + 8,   widget_welcome.anchor.y + 32, 624, 128 },
-            CLITERAL(Rectangle){ widget_welcome.anchor.x + 8,   widget_welcome.anchor.y + 168, 304, 24 },
-            CLITERAL(Rectangle){ widget_welcome.anchor.x + 328, widget_welcome.anchor.y + 168, 304, 24 },
-            CLITERAL(Rectangle){ widget_welcome.anchor.x + 8,   widget_welcome.anchor.y + 208, 624, 112 },
-            CLITERAL(Rectangle){ widget_welcome.anchor.x + 472, widget_welcome.anchor.y + 288, 152, 24 },
-            CLITERAL(Rectangle){ widget_welcome.anchor.x + 152, widget_welcome.anchor.y + 224, 96, 24 },
-            CLITERAL(Rectangle){ widget_welcome.anchor.x + 16,  widget_welcome.anchor.y + 224, 128, 24 },
-            CLITERAL(Rectangle){ widget_welcome.anchor.x + 152, widget_welcome.anchor.y + 288, 96, 24 },
-            CLITERAL(Rectangle){ widget_welcome.anchor.x + 16,  widget_welcome.anchor.y + 288, 128, 24 },
-            CLITERAL(Rectangle){ widget_welcome.anchor.x + 16,  widget_welcome.anchor.y + 256, 128, 24 },
-            CLITERAL(Rectangle){ widget_welcome.anchor.x + 152, widget_welcome.anchor.y + 256, 96, 24 },
+        const Rectangle layouts[] = {
+            // NOTE: Yes I know this is not efficient
+            CLITERAL (Rectangle){widget_welcome.anchor.x + 0,   widget_welcome.anchor.y + 0,   widget_welcome.width, widget_welcome.height},
+            CLITERAL (Rectangle){widget_welcome.anchor.x + 8,   widget_welcome.anchor.y + 32,  624,                  128                  },
+            CLITERAL (Rectangle){widget_welcome.anchor.x + 8,   widget_welcome.anchor.y + 168, 304,                  24                   },
+            CLITERAL (Rectangle){widget_welcome.anchor.x + 328, widget_welcome.anchor.y + 168, 304,                  24                   },
+            CLITERAL (Rectangle){widget_welcome.anchor.x + 8,   widget_welcome.anchor.y + 208, 624,                  112                  },
+            CLITERAL (Rectangle){widget_welcome.anchor.x + 472, widget_welcome.anchor.y + 288, 152,                  24                   },
+            CLITERAL (Rectangle){widget_welcome.anchor.x + 152, widget_welcome.anchor.y + 224, 96,                   24                   },
+            CLITERAL (Rectangle){widget_welcome.anchor.x + 16,  widget_welcome.anchor.y + 224, 128,                  24                   },
+            CLITERAL (Rectangle){widget_welcome.anchor.x + 152, widget_welcome.anchor.y + 288, 96,                   24                   },
+            CLITERAL (Rectangle){widget_welcome.anchor.x + 16,  widget_welcome.anchor.y + 288, 128,                  24                   },
+            CLITERAL (Rectangle){widget_welcome.anchor.x + 16,  widget_welcome.anchor.y + 256, 128,                  24                   },
+            CLITERAL (Rectangle){widget_welcome.anchor.x + 152, widget_welcome.anchor.y + 256, 96,                   24                   },
         };
 
         // Temp for now
@@ -488,7 +509,7 @@ void RSP_RenderWelcome (void) {
         GuiSetStyle (LISTVIEW, TEXT_ALIGNMENT, TEXT_ALIGN_LEFT);
         GuiListViewEx (layouts[1], (const char**)WELCOME_STATE.files.paths, WELCOME_STATE.files.count, &widget_welcome.list_projects_scroll_index, &widget_welcome.list_projects_active, NULL);
 
-        widget_welcome.button_load_project_pressed = GuiButton (layouts[2], "#005#Load Selected Project");
+        widget_welcome.button_load_project_pressed   = GuiButton (layouts[2], "#005#Load Selected Project");
         widget_welcome.button_delete_project_pressed = GuiButton (layouts[3], "#143#Delete Selected Project");
 
         GuiGroupBox (layouts[4], "New Project");
@@ -497,32 +518,35 @@ void RSP_RenderWelcome (void) {
             widget_welcome.button_new_project_pressed = GuiButton (layouts[5], "#008#Create & Load Project");
 
             GuiLabel (layouts[6], "Project Name");
-            if (GuiTextBox (layouts[7], widget_welcome.textbox_project_name_text, 128, widget_welcome.textbox_project_name_edit)) TOGGLE (widget_welcome.textbox_project_name_edit);
+            if (GuiTextBox (layouts[7], widget_welcome.textbox_project_name_text, 128, widget_welcome.textbox_project_name_edit))
+                TOGGLE (widget_welcome.textbox_project_name_edit);
 
-            GuiLabel(layouts[8], "Atlas Size");
-            if (GuiDropdownBox (layouts[9], "512;1024;2048;4096;8192", &widget_welcome.dropdown_atlas_size_active, widget_welcome.dropdown_atlas_size_edit)) TOGGLE (widget_welcome.dropdown_atlas_size_edit);
+            GuiLabel (layouts[8], "Atlas Size");
+            if (GuiDropdownBox (layouts[9], "512;1024;2048;4096;8192", &widget_welcome.dropdown_atlas_size_active, widget_welcome.dropdown_atlas_size_edit))
+                TOGGLE (widget_welcome.dropdown_atlas_size_edit);
 
             GuiLabel (layouts[11], "Alignment Value");
-            if (GuiValueBox (layouts[10], NULL, &widget_welcome.value_atlas_align, 0, 128, widget_welcome.value_atlas_align_edit)) TOGGLE (widget_welcome.value_atlas_align_edit);
+            if (GuiValueBox (layouts[10], NULL, &widget_welcome.value_atlas_align, 0, 128, widget_welcome.value_atlas_align_edit))
+                TOGGLE (widget_welcome.value_atlas_align_edit);
         }
     }
 
-    GuiUnlock();
+    GuiUnlock ();
 }
 
 static void __RSP_Toolbar (void) {
-    GuiStatusBar (CLITERAL(Rectangle){ widget_toolbar.anchor.x, widget_toolbar.anchor.y, GetRenderWidth (), 48 }, NULL);
+    GuiStatusBar (CLITERAL (Rectangle){widget_toolbar.anchor.x, widget_toolbar.anchor.y, GetRenderWidth (), 48}, NULL);
 
     GuiEnableTooltip ();
 
     GuiSetTooltip ("Save Project");
-    widget_toolbar.button_save_project_pressed = GuiButton (CLITERAL(Rectangle){ 8, 8, 32, 32 }, "#2#");
+    widget_toolbar.button_save_project_pressed = GuiButton (CLITERAL (Rectangle){8, 8, 32, 32}, "#2#");
 
     GuiSetTooltip ("Export Atlas as PNG");
-    widget_toolbar.button_export_png_pressed =  GuiButton (CLITERAL(Rectangle){ 48, 8, 32, 32 }, "#195#");
+    widget_toolbar.button_export_png_pressed = GuiButton (CLITERAL (Rectangle){48, 8, 32, 32}, "#195#");
 
     GuiSetTooltip ("Export Bundle");
-    widget_toolbar.button_export_bundle_pressed = GuiButton (CLITERAL(Rectangle){ 88, 8, 32, 32 }, "#200#");
+    widget_toolbar.button_export_bundle_pressed = GuiButton (CLITERAL (Rectangle){88, 8, 32, 32}, "#200#");
 
     GuiDisableTooltip ();
 }
@@ -531,30 +555,26 @@ void RSP_RenderEditor (void) {
     BeginMode2D (camera);
 
     DrawRectangleLines (-1, -1, current_project.atlas_size + 2, current_project.atlas_size + 2, RED);
-    DrawTexturePro (current_project.atlas.texture, CLITERAL(Rectangle){ 0, 0, current_project.atlas_size, -current_project.atlas_size }, CLITERAL(Rectangle){ 0, 0, current_project.atlas_size, current_project.atlas_size }, Vector2Zero (), 0.0f, WHITE);
+    DrawTexturePro (current_project.atlas.texture, CLITERAL (Rectangle){0, 0, current_project.atlas_size, -current_project.atlas_size}, CLITERAL (Rectangle){0, 0, current_project.atlas_size, current_project.atlas_size}, Vector2Zero (), 0.0f, WHITE);
 
     if (EDITOR_STATE.current_hovered_sprite != NULL) {
         DrawRectangleLinesEx (EDITOR_STATE.current_hovered_sprite->source, 0.1, GREEN);
 
         DrawLineV (
-            CLITERAL(Vector2){ .x = EDITOR_STATE.current_hovered_sprite->source.x, .y = EDITOR_STATE.mouse.y },
-            CLITERAL(Vector2){ .x = EDITOR_STATE.current_hovered_sprite->source.x + EDITOR_STATE.current_hovered_sprite->source.width, .y = EDITOR_STATE.mouse.y },
-            WHITE
-        );
+            CLITERAL (Vector2){.x = EDITOR_STATE.current_hovered_sprite->source.x, .y = EDITOR_STATE.mouse.y},
+            CLITERAL (Vector2){.x = EDITOR_STATE.current_hovered_sprite->source.x + EDITOR_STATE.current_hovered_sprite->source.width, .y = EDITOR_STATE.mouse.y},
+            WHITE);
 
         DrawLineV (
-            CLITERAL(Vector2){ .x = EDITOR_STATE.mouse.x, .y = EDITOR_STATE.current_hovered_sprite->source.y },
-            CLITERAL(Vector2){ .x = EDITOR_STATE.mouse.x, .y = EDITOR_STATE.current_hovered_sprite->source.y + EDITOR_STATE.current_hovered_sprite->source.height },
-            WHITE
-        );
+            CLITERAL (Vector2){.x = EDITOR_STATE.mouse.x, .y = EDITOR_STATE.current_hovered_sprite->source.y},
+            CLITERAL (Vector2){.x = EDITOR_STATE.mouse.x, .y = EDITOR_STATE.current_hovered_sprite->source.y + EDITOR_STATE.current_hovered_sprite->source.height},
+            WHITE);
 
         Vector2 origin = Vector2Add (
             EDITOR_STATE.current_hovered_sprite->origin,
-            CLITERAL (Vector2) {
+            CLITERAL (Vector2){
                 EDITOR_STATE.current_hovered_sprite->source.x,
-                EDITOR_STATE.current_hovered_sprite->source.y
-            }
-        );
+                EDITOR_STATE.current_hovered_sprite->source.y});
 
         DrawCircleV (origin, 1.0f, Fade (RED, 0.5f));
         DrawCircleLinesV (origin, 1.0f, RED);
@@ -569,34 +589,37 @@ void RSP_RenderEditor (void) {
 // Projects
 // -----------------------------------------------------------------------------
 RSP_ProjectError RSP_CreateAndLoadProject (const char* project_name) {
-    if (!DirectoryExists (DEFAULT_PROJECT_DIRECTORY)) MakeDirectory (DEFAULT_PROJECT_DIRECTORY);
+    if (!DirectoryExists (DEFAULT_PROJECT_DIRECTORY))
+        MakeDirectory (DEFAULT_PROJECT_DIRECTORY);
 
-    const char* directory = TextFormat ("%s/%s", DEFAULT_PROJECT_DIRECTORY, project_name);
+    const char* directory   = TextFormat ("%s/%s", DEFAULT_PROJECT_DIRECTORY, project_name);
     char* project_directory = MemAlloc (TextLength (directory));
     TextCopy (project_directory, directory);
 
-    const char* file = TextFormat ("%s/project%s", project_directory, DEFAULT_PROJECT_EXTENSION);
+    const char* file   = TextFormat ("%s/project%s", project_directory, DEFAULT_PROJECT_EXTENSION);
     char* project_file = MemAlloc (TextLength (file));
     TextCopy (project_file, file);
 
-    if (FileExists (project_file)) return RSP_PROJECT_ERROR_EXISTS;
+    if (FileExists (project_file))
+        return RSP_PROJECT_ERROR_EXISTS;
 
     MakeDirectory (project_directory);
     MakeDirectory (TextFormat ("%s/textures", project_directory));
 
-    const uint16_t atlas_sizes[5] = { 512, 1024, 2048, 4096, 8192 };
+    const uint16_t atlas_sizes[5] = {512, 1024, 2048, 4096, 8192};
 
     {
         current_project.version = DEFAULT_PROJECT_VERSION,
         strncpy (current_project.name, widget_welcome.textbox_project_name_text, MAX_PROJECT_NAME_LENGTH);
 
-        current_project.alignment = widget_welcome.value_atlas_align;
+        current_project.alignment  = widget_welcome.value_atlas_align;
         current_project.atlas_size = atlas_sizes[widget_welcome.dropdown_atlas_size_active];
     }
 
     RSP_ProjectError status = RSP_SaveProject ();
 
-    if (status == RSP_PROJECT_ERROR_FAILED_WRITE) goto panic;
+    if (status == RSP_PROJECT_ERROR_FAILED_WRITE)
+        goto panic;
 
     status = RSP_LoadProject (project_file);
 
@@ -608,21 +631,23 @@ panic:
 }
 
 RSP_ProjectError RSP_LoadProject (const char* project_file) {
-    if (!FileExists (project_file)) return RSP_PROJECT_ERROR_NOT_EXIST;
+    if (!FileExists (project_file))
+        return RSP_PROJECT_ERROR_NOT_EXIST;
 
     JSON_Value* root = json_parse_file (project_file);
-    if (!root) return RSP_PROJECT_ERROR_FAILED_READ;
+    if (!root)
+        return RSP_PROJECT_ERROR_FAILED_READ;
 
     JSON_Object* root_object = json_value_get_object (root);
 
     strncpy (current_project.name, json_object_get_string (root_object, "name"), MAX_PROJECT_NAME_LENGTH);
-    current_project.version = (uint8_t)json_object_get_number (root_object, "version");
+    current_project.version    = (uint8_t)json_object_get_number (root_object, "version");
     current_project.atlas_size = (uint16_t)json_object_get_number (root_object, "atlas_size");
-    current_project.alignment = (uint8_t)json_object_get_number (root_object, "alignment");
+    current_project.alignment  = (uint8_t)json_object_get_number (root_object, "alignment");
 
     current_project.atlas = LoadRenderTexture (current_project.atlas_size, current_project.atlas_size);
 
-    JSON_Array* sprites_array = json_object_get_array (root_object, "sprites");
+    JSON_Array* sprites_array     = json_object_get_array (root_object, "sprites");
     current_project.sprites_count = (uint16_t)json_array_get_count (sprites_array);
 
     current_project.sprites = MemAlloc (sizeof (RSP_Sprite) * current_project.sprites_count);
@@ -630,29 +655,30 @@ RSP_ProjectError RSP_LoadProject (const char* project_file) {
     for (size_t i = 0; i < current_project.sprites_count; i++) {
         JSON_Object* sprite_object = json_array_get_object (sprites_array, i);
 
-        current_project.sprites[i] = CLITERAL(RSP_Sprite){ 0 };
-        RSP_Sprite* sprite = &current_project.sprites[i];
+        current_project.sprites[i] = CLITERAL (RSP_Sprite){0};
+        RSP_Sprite* sprite         = &current_project.sprites[i];
 
         strncpy (sprite->name, json_object_get_string (sprite_object, "name"), MAX_ASSET_NAME_LENGTH);
         strncpy (sprite->file, json_object_get_string (sprite_object, "file"), MAX_ASSET_FILE_LENGTH);
 
         sprite->flags = (uint16_t)json_object_get_number (sprite_object, "flags");
 
-        sprite->source = CLITERAL(Rectangle){
+        sprite->source = CLITERAL (Rectangle){
             (float)json_object_dotget_number (sprite_object, "source.x"),
             (float)json_object_dotget_number (sprite_object, "source.y"),
             (float)json_object_dotget_number (sprite_object, "source.width"),
             (float)json_object_dotget_number (sprite_object, "source.height"),
         };
 
-        sprite->origin = CLITERAL(Vector2) {
+        sprite->origin = CLITERAL (Vector2){
             (float)json_object_dotget_number (sprite_object, "origin.x"),
             (float)json_object_dotget_number (sprite_object, "origin.y"),
         };
 
         if (FileExists (sprite->file)) {
             sprite->texture = LoadTexture (sprite->file);
-        } else TraceLog (LOG_ERROR, "Could not fine file %s!", sprite->file);
+        } else
+            TraceLog (LOG_ERROR, "Could not fine file %s!", sprite->file);
     }
 
     json_value_free (root);
@@ -663,16 +689,17 @@ RSP_ProjectError RSP_LoadProject (const char* project_file) {
 }
 
 RSP_ProjectError RSP_SaveProject (void) {
-    const char* directory = TextFormat ("%s/%s", DEFAULT_PROJECT_DIRECTORY, current_project.name);
+    const char* directory   = TextFormat ("%s/%s", DEFAULT_PROJECT_DIRECTORY, current_project.name);
     char* project_directory = MemAlloc (TextLength (directory));
     TextCopy (project_directory, directory);
 
-    const char* file = TextFormat ("%s/project%s", project_directory, DEFAULT_PROJECT_EXTENSION);
+    const char* file   = TextFormat ("%s/project%s", project_directory, DEFAULT_PROJECT_EXTENSION);
     char* project_file = MemAlloc (TextLength (file));
     TextCopy (project_file, file);
 
     const char* backup_file = TextFormat ("%s.bkp", project_file);
-    if (FileExists (backup_file)) remove (backup_file);
+    if (FileExists (backup_file))
+        remove (backup_file);
 
     if (FileExists (project_file)) {
         CopyFile (project_file, backup_file);
@@ -681,7 +708,7 @@ RSP_ProjectError RSP_SaveProject (void) {
     }
 
     {
-        JSON_Value* root = json_value_init_object ();
+        JSON_Value* root         = json_value_init_object ();
         JSON_Object* root_object = json_value_get_object (root);
 
         json_object_set_string (root_object, "name", current_project.name);
@@ -697,7 +724,7 @@ RSP_ProjectError RSP_SaveProject (void) {
         for (size_t i = 0; i < current_project.sprites_count; i++) {
             RSP_Sprite* sprite = &current_project.sprites[i];
 
-            JSON_Value* sprite_value = json_value_init_object ();
+            JSON_Value* sprite_value   = json_value_init_object ();
             JSON_Object* sprite_object = json_value_get_object (sprite_value);
 
             // Generic data
@@ -736,7 +763,8 @@ RSP_ProjectError RSP_SaveProject (void) {
 
         json_value_free (root);
 
-        if (status == JSONError) return RSP_PROJECT_ERROR_FAILED_WRITE;
+        if (status == JSONError)
+            return RSP_PROJECT_ERROR_FAILED_WRITE;
     }
 
     MemFree (project_directory);
@@ -751,14 +779,15 @@ RSP_ProjectError RSP_UnloadProject (void) {
 
         UnloadTexture (sprite->texture);
 
-        if (sprite->animation.frames_count > 0) MemFree (sprite->animation.frames);
+        if (sprite->animation.frames_count > 0)
+            MemFree (sprite->animation.frames);
     }
 
     MemFree (current_project.sprites);
 
     UnloadDirectoryFiles (current_project.assets);
 
-    current_project.assets.count = 0;
+    current_project.assets.count  = 0;
     current_project.sprites_count = 0;
 
     return RSP_PROJECT_ERROR_NONE;
@@ -776,29 +805,36 @@ static int CompareTextureSizes (const void* a, const void* b) {
 
     if (mass_a == mass_b) {
         if ((int)sprite_a->source.width == (int)sprite_b->source.width) {
-            if (sprite_a->source.height > sprite_b->source.height) return -1;
-            if (sprite_b->source.height > sprite_a->source.height) return 1;
+            if (sprite_a->source.height > sprite_b->source.height)
+                return -1;
+            if (sprite_b->source.height > sprite_a->source.height)
+                return 1;
 
             return 0;
         } else {
-            if (sprite_a->source.width > sprite_b->source.width) return -1;
-            if (sprite_b->source.width > sprite_a->source.width) return 1;
+            if (sprite_a->source.width > sprite_b->source.width)
+                return -1;
+            if (sprite_b->source.width > sprite_a->source.width)
+                return 1;
 
             return 0;
         }
     } else {
-        if (mass_a > mass_b) return -1;
-        if (mass_b > mass_a) return 1;
+        if (mass_a > mass_b)
+            return -1;
+        if (mass_b > mass_a)
+            return 1;
     }
 
     return 0;
 }
 
 static bool __is_image (const char* filename) {
-    const char* accepted_formats[] = { ".png", ".bmp", ".tga", ".jpg", ".jpeg", ".gif", ".qoi", ".psd;", ".dds", ".hdr", ".ktx", ".astc" ".pkm", ".pvr" };
+    const char* accepted_formats[] = {".png", ".bmp", ".tga", ".jpg", ".jpeg", ".gif", ".qoi", ".psd;", ".dds", ".hdr", ".ktx", ".astc", ".pkm", ".pvr"};
 
     for (size_t i = 0; i < lengthof (accepted_formats); i++) {
-        if (TextIsEqual (filename, accepted_formats[i])) return true;
+        if (TextIsEqual (filename, accepted_formats[i]))
+            return true;
     }
 
     return false;
@@ -828,8 +864,8 @@ void LoadSprites (FilePathList files) {
         const char* new_filename = TextFormat ("projects/%s/textures/%d%s", current_project.name, current_project.sprites_count, GetFileExtension (filtered_files[i]));
         CopyFile (filtered_files[i], new_filename);
 
-        current_project.sprites[current_project.sprites_count] = CLITERAL(RSP_Sprite){ 0 };
-        RSP_Sprite* sprite = &current_project.sprites[current_project.sprites_count];
+        current_project.sprites[current_project.sprites_count] = CLITERAL (RSP_Sprite){0};
+        RSP_Sprite* sprite                                     = &current_project.sprites[current_project.sprites_count];
 
         strncpy (sprite->name, GetFileNameWithoutExt (filtered_files[i]), MAX_ASSET_NAME_LENGTH);
         strncpy (sprite->file, new_filename, MAX_ASSET_FILE_LENGTH);
@@ -844,8 +880,8 @@ void LoadSprites (FilePathList files) {
             break;
         }
 
-        sprite->source = CLITERAL(Rectangle){ 0, 0, sprite->texture.width, sprite->texture.height };
-        sprite->origin = CLITERAL(Vector2){ 0 };
+        sprite->source = CLITERAL (Rectangle){0, 0, sprite->texture.width, sprite->texture.height};
+        sprite->origin = CLITERAL (Vector2){0};
 
         current_project.sprites_count++;
     }
@@ -853,7 +889,7 @@ void LoadSprites (FilePathList files) {
 
 void SortSprites (void) {
     qsort (current_project.sprites, current_project.sprites_count, sizeof (RSP_Sprite), CompareTextureSizes);
-    Rectangle atlas_bounds = CLITERAL(Rectangle){ 0, 0, current_project.atlas_size, current_project.atlas_size };
+    Rectangle atlas_bounds = CLITERAL (Rectangle){0, 0, current_project.atlas_size, current_project.atlas_size};
 
     int textures_placed = 0;
     for (size_t i = 0; i < current_project.sprites_count; i++) {
@@ -874,11 +910,9 @@ void SortSprites (void) {
             }
         }
 
-        bool inside_top_left = (current_rectangle->x >= atlas_bounds.x && current_rectangle->y >= atlas_bounds.y);
-        bool inside_bottom_right = (
-            (current_rectangle->x + current_rectangle->width) <= (atlas_bounds.x + atlas_bounds.width) &&
-            (current_rectangle->y + current_rectangle->height) <= (atlas_bounds.y + atlas_bounds.height)
-        );
+        bool inside_top_left     = (current_rectangle->x >= atlas_bounds.x && current_rectangle->y >= atlas_bounds.y);
+        bool inside_bottom_right = ((current_rectangle->x + current_rectangle->width) <= (atlas_bounds.x + atlas_bounds.width) &&
+                                    (current_rectangle->y + current_rectangle->height) <= (atlas_bounds.y + atlas_bounds.height));
 
         if (!inside_top_left || !inside_bottom_right) {
             for (size_t k = textures_placed; k < current_project.sprites_count; k++) {
@@ -886,7 +920,8 @@ void SortSprites (void) {
 
                 UnloadTexture (sprite->texture);
 
-                if (sprite->animation.frames_count > 0) MemFree (sprite->animation.frames);
+                if (sprite->animation.frames_count > 0)
+                    MemFree (sprite->animation.frames);
             }
 
             current_project.sprites_count = textures_placed;
@@ -900,13 +935,13 @@ void SortSprites (void) {
 
 void RenderAtlas (void) {
     BeginTextureMode (current_project.atlas);
-        ClearBackground (Fade (BLACK, 0));
+    ClearBackground (Fade (BLACK, 0));
 
-        for (size_t i = 0; i < current_project.sprites_count; i++) {
-            RSP_Sprite* sprite = &current_project.sprites[i];
+    for (size_t i = 0; i < current_project.sprites_count; i++) {
+        RSP_Sprite* sprite = &current_project.sprites[i];
 
-            DrawTextureV (sprite->texture, CLITERAL(Vector2){ sprite->source.x, sprite->source.y }, WHITE);
-        }
+        DrawTextureV (sprite->texture, CLITERAL (Vector2){sprite->source.x, sprite->source.y}, WHITE);
+    }
     EndTextureMode ();
 }
 
@@ -923,7 +958,7 @@ void RSP_ExportBundle (void) {
     Image atlas_image = LoadImageFromTexture (current_project.atlas.texture);
     ImageFlipVertical (&atlas_image);
 
-    unsigned char* image_data_raw = ExportImageToMemory (atlas_image, ".png", &atlas_data_raw_size);
+    unsigned char* image_data_raw        = ExportImageToMemory (atlas_image, ".png", &atlas_data_raw_size);
     unsigned char* image_data_compressed = CompressData (image_data_raw, atlas_data_raw_size, &atlas_data_compressed_size);
 
     MemFree (image_data_raw);
@@ -996,7 +1031,8 @@ void RSP_LoadBundle (void) {
 
     FILE* import = fopen (file, "rb");
 
-    if (!import) goto free;
+    if (!import)
+        goto free;
 
     uint16_t sprite_count;
     int32_t atlas_data_raw_size, atlas_data_compressed_size;
@@ -1016,7 +1052,7 @@ void RSP_LoadBundle (void) {
     MemFree (atlas_data_raw);
 
     RSP_Sprite* sprites = calloc (sprite_count, sizeof (RSP_Sprite));
-    char* header = calloc (4, sizeof (char));
+    char* header        = calloc (4, sizeof (char));
 
     for (size_t i = 0; i < sprite_count; i++) {
         fread (header, sizeof (char), 4, import);
@@ -1078,5 +1114,5 @@ void CopyFile (const char* source, const char* destination) {
 
 void ShowAlert (const char* text) {
     should_show_alert = true;
-    alert_text = text;
+    alert_text        = text;
 }
